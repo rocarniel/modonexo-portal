@@ -27,6 +27,9 @@ const CONFIG = {
     "olegarioadvogado@gmail.com",
   ],
 
+  // Google Drive — pasta KMZ/KML compartilhada
+  driveFolderKmz: "1iMz3FwYSLZrgSwtYsMVsgxoGrSaLZxJB",
+
   // Limites de arquivo
   limits: {
     imagemMB:    10,
