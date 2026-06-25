@@ -1,0 +1,5 @@
+.claude/
+worker/.wrangler/
+*.png
+*.jpg
+SETUP.md
