@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Quero ser Parceiro</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="public-header">
+    <div class="brand">MODOnexo</div>
+    <span style="font-size:13px;color:rgba(255,255,255,0.6)">Portal de Oportunidades</span>
+  </div>
+
+  <div class="public-page">
+    <div class="card mt-24">
+      <div style="text-align:center;margin-bottom:24px">
+        <h1 style="font-size:22px;color:var(--navy);margin-bottom:6px">Cadastro de Parceiro</h1>
+        <p style="color:var(--text-muted);font-size:14px">Preencha os dados abaixo. Nossa equipe analisará seu cadastro e entrará em contato.</p>
+      </div>
+
+      <div id="alertCad" class="alert" style="display:none"></div>
+
+      <div id="formArea">
+        <form id="formCadastro">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">Nome completo</label>
+              <input type="text" id="nome" placeholder="Seu nome completo" required>
+            </div>
+            <div class="form-group">
+              <label class="required">E-mail</label>
+              <input type="email" id="email" placeholder="seu@email.com" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">CRECI</label>
+              <input type="text" id="creci" placeholder="Ex: 12345-F" required>
+            </div>
+            <div class="form-group">
+              <label class="required">WhatsApp</label>
+              <input type="tel" id="whatsapp" placeholder="(11) 99999-9999" required>
+            </div>
+          </div>
+
+          <div style="background:var(--bg);border-radius:8px;padding:14px;margin-bottom:20px;font-size:13px;color:var(--text-muted)">
+            ℹ️ Após o envio, seu cadastro ficará pendente de aprovação. Você receberá um e-mail com as instruções de acesso assim que for aprovado.
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block btn-lg" id="btnCad">
+            Enviar solicitação
+          </button>
+        </form>
+      </div>
+
+      <div id="sucesso" style="display:none;text-align:center;padding:24px 0">
+        <div style="font-size:48px;margin-bottom:12px">✅</div>
+        <h2 style="color:var(--navy);margin-bottom:8px">Solicitação enviada!</h2>
+        <p style="color:var(--text-muted);margin-bottom:20px">Analisaremos seu cadastro e você receberá um e-mail em breve.</p>
+        <a href="index.html" class="btn btn-outline">Ir para o login</a>
+      </div>
+
+      <div class="divider"></div>
+      <div class="text-center" style="font-size:13px;color:var(--text-muted)">
+        Já tem acesso? <a href="index.html" style="color:var(--navy);font-weight:bold">Entrar no portal</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    // api.js usa getIdToken() que pode não existir aqui — override seguro
+    async function getIdToken() { return null; }
+
+    document.getElementById("formCadastro").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn   = document.getElementById("btnCad");
+      const alert = document.getElementById("alertCad");
+      alert.style.display = "none";
+      btn.disabled = true;
+      btn.textContent = "Enviando…";
+
+      try {
+        await API.parceiros.cadastrar({
+          nome:     document.getElementById("nome").value.trim(),
+          email:    document.getElementById("email").value.trim(),
+          creci:    document.getElementById("creci").value.trim(),
+          whatsapp: document.getElementById("whatsapp").value.trim(),
+        });
+        document.getElementById("formArea").style.display = "none";
+        document.getElementById("sucesso").style.display  = "block";
+      } catch (err) {
+        alert.className      = "alert alert-error";
+        alert.textContent    = "Erro ao enviar: " + err.message;
+        alert.style.display  = "flex";
+        btn.disabled = false;
+        btn.textContent = "Enviar solicitação";
+      }
+    });
+  </script>
+</body>
+</html>

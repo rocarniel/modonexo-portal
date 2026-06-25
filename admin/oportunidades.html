@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Oportunidades</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">📋 Todas as Oportunidades</h1>
+      <a href="../parceiro/nova-oportunidade.html?origem=MODO" class="btn btn-gold">➕ Captação MODO</a>
+    </div>
+    <div class="page-body">
+      <div class="filters-bar">
+        <select id="fStatus" onchange="filtrar()">
+          <option value="">Todos os status</option>
+          <option>Recebido</option><option>Em análise</option>
+          <option>Em negociação</option><option>Aguardando documentos</option>
+          <option>Viável</option><option>Condições inviáveis</option><option>Descartado</option>
+        </select>
+        <select id="fTipo" onchange="filtrar()">
+          <option value="">Todos os tipos</option>
+          <option>Área para loteamento</option><option>Apartamento</option>
+          <option>Casa</option><option>Terreno</option>
+          <option>Comercial</option><option>Galpão</option><option>Rural</option>
+        </select>
+        <select id="fOrigem" onchange="filtrar()">
+          <option value="">Todas origens</option>
+          <option>Parceiro</option><option>MODO</option>
+        </select>
+        <input type="text" id="fTexto" placeholder="🔍 Buscar…" oninput="filtrar()" style="min-width:180px">
+      </div>
+
+      <div class="card">
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Título</th><th>Parceiro</th><th>Tipo</th>
+                <th>Município/UF</th><th>Valor</th><th>Status</th>
+                <th>Origem</th><th>Data</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr><td colspan="9" class="text-center text-muted" style="padding:28px">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/oportunidades.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Oportunidades');
+
+  let todas = [];
+
+  requireAuth(true).then(async (profile) => {
+    renderUserChip(profile);
+    try {
+      const data = await API.oportunidades.listar({ todos: true });
+      todas = data.records || [];
+      renderTabela(todas);
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  });
+
+  function renderTabela(ops) {
+    const tbody = document.getElementById('tbody');
+    if (!ops.length) {
+      tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">📭</div><p>Nenhuma oportunidade.</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = ops.map(o => {
+      const f = o.fields;
+      return `<tr>
+        <td><strong>${f['Título'] || '—'}</strong></td>
+        <td style="font-size:13px">${(f['Nome Completo (from Parceiros)'] || ['—'])[0]}</td>
+        <td>${f['Tipo de imóvel'] || '—'}</td>
+        <td>${f['Município'] || '—'}/${f['Estado'] || '—'}</td>
+        <td>${formatMoeda(f['Valor pretendido (R$)'])}</td>
+        <td>${badgeStatus(f['Status'])}</td>
+        <td>${f['Origem'] === 'MODO' ? '<span class="badge badge-modo">MODO</span>' : '<span class="badge badge-parceiro">Parceiro</span>'}</td>
+        <td>${formatData(f['Data de entrada'])}</td>
+        <td><a href="oportunidade.html?id=${o.id}" class="btn btn-sm btn-outline">Ver →</a></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function filtrar() {
+    const status = document.getElementById('fStatus').value;
+    const tipo   = document.getElementById('fTipo').value;
+    const origem = document.getElementById('fOrigem').value;
+    const texto  = document.getElementById('fTexto').value.toLowerCase();
+    renderTabela(todas.filter(o => {
+      const f = o.fields;
+      return (!status || f['Status'] === status)
+          && (!tipo   || f['Tipo de imóvel'] === tipo)
+          && (!origem || f['Origem'] === origem)
+          && (!texto  || (f['Título'] || '').toLowerCase().includes(texto)
+                      || (f['Município'] || '').toLowerCase().includes(texto));
+    }));
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Parceiros</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">👥 Parceiros</h1>
+      <div style="display:flex;gap:8px">
+        <select id="fStatus" onchange="filtrar()" style="padding:8px 12px;border-radius:8px;border:1.5px solid var(--border);font-size:13px">
+          <option value="">Todos os status</option>
+          <option>Pendente</option><option>Ativo</option>
+          <option>Inativo</option><option>Suspenso</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div class="card">
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th><th>CRECI</th><th>E-mail</th>
+                <th>WhatsApp</th><th>Cadastro</th>
+                <th>Status</th><th>Oportunidades</th><th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr><td colspan="8" class="text-center text-muted" style="padding:28px">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal alterar status -->
+<div class="modal-overlay hidden" id="modalStatus">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Alterar Status do Parceiro</span>
+      <button class="modal-close" onclick="fecharModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="modalNome" style="font-size:15px;font-weight:bold;color:var(--navy);margin-bottom:16px"></p>
+      <div class="form-group">
+        <label>Novo status</label>
+        <select id="novoStatus">
+          <option>Pendente</option><option>Ativo</option>
+          <option>Inativo</option><option>Suspenso</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarStatus()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/parceiros.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Parceiros');
+
+  let todos = [], idEditando = null;
+
+  requireAuth(true).then(async (profile) => {
+    renderUserChip(profile);
+    try {
+      const data = await API.parceiros.listar();
+      todos = data.records || [];
+      renderTabela(todos);
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  });
+
+  function renderTabela(parceiros) {
+    const tbody = document.getElementById('tbody');
+    if (!parceiros.length) {
+      tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="icon">👥</div><p>Nenhum parceiro encontrado.</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = parceiros.map(p => {
+      const f   = p.fields;
+      const ops = f['Oportunidades']?.length || 0;
+      return `<tr>
+        <td><strong>${f['Nome Completo'] || '—'}</strong></td>
+        <td>${f['CRECI'] || '—'}</td>
+        <td><a href="mailto:${f['E-Mail']}" style="color:var(--navy)">${f['E-Mail'] || '—'}</a></td>
+        <td><a href="https://wa.me/55${(f['WhatsApp']||'').replace(/\D/g,'')}" target="_blank" style="color:var(--navy)">${f['WhatsApp'] || '—'}</a></td>
+        <td>${formatData(f['Data de cadastro'])}</td>
+        <td>${badgeStatus(f['Status'])}</td>
+        <td><span class="badge badge-analise">${ops}</span></td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="abrirModal('${p.id}','${f['Nome Completo'] || ''}','${f['Status'] || 'Pendente'}')">
+            Alterar status
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function filtrar() {
+    const st = document.getElementById('fStatus').value;
+    renderTabela(todos.filter(p => !st || p.fields['Status'] === st));
+  }
+
+  function abrirModal(id, nome, statusAtual) {
+    idEditando = id;
+    document.getElementById('modalNome').textContent    = nome;
+    document.getElementById('novoStatus').value         = statusAtual;
+    document.getElementById('modalStatus').classList.remove('hidden');
+  }
+
+  function fecharModal() { document.getElementById('modalStatus').classList.add('hidden'); }
+
+  async function confirmarStatus() {
+    const novo = document.getElementById('novoStatus').value;
+    try {
+      await API.parceiros.atualizar(idEditando, { status: novo });
+      showToast('Status atualizado: ' + novo, 'success');
+      fecharModal();
+      // Atualiza localmente
+      const p = todos.find(x => x.id === idEditando);
+      if (p) p.fields['Status'] = novo;
+      filtrar();
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  }
+</script>
+</body>
+</html>

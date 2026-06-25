@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Leads</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">🎯 Leads — Acessos a Links Compartilhados</h1>
+    </div>
+    <div class="page-body">
+      <div class="alert alert-info mb-16">
+        Toda pessoa que acessou um link de oportunidade compartilhado por um parceiro é registrada aqui, com nome, WhatsApp, data e qual parceiro compartilhou.
+      </div>
+
+      <div class="kpi-grid" style="margin-bottom:20px">
+        <div class="kpi-card"><div class="kpi-label">Total de acessos</div><div class="kpi-value" id="kpiTotal">—</div></div>
+        <div class="kpi-card gold"><div class="kpi-label">Últimas 24h</div><div class="kpi-value" id="kpi24h">—</div></div>
+        <div class="kpi-card green"><div class="kpi-label">Oportunidades com acesso</div><div class="kpi-value" id="kpiOps">—</div></div>
+      </div>
+
+      <div class="filters-bar">
+        <input type="text" id="fTexto" placeholder="🔍 Buscar por nome, WhatsApp ou parceiro…" oninput="filtrar()" style="min-width:280px">
+      </div>
+
+      <div class="card">
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th><th>WhatsApp</th>
+                <th>Oportunidade</th><th>Parceiro</th>
+                <th>Data e hora</th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr><td colspan="5" class="text-center text-muted" style="padding:28px">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/leads.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Leads');
+
+  let todos = [];
+
+  requireAuth(true).then(async (profile) => {
+    renderUserChip(profile);
+    try {
+      const data = await API.leads.listar();
+      todos = data.records || [];
+
+      // KPIs
+      document.getElementById('kpiTotal').textContent = todos.length;
+      const ontem = new Date(Date.now() - 86400000);
+      document.getElementById('kpi24h').textContent   = todos.filter(l => new Date(l.fields['Data e hora do acesso']) > ontem).length;
+      const opsUnicas = new Set(todos.map(l => l.fields['ID da oportunidade']).filter(Boolean));
+      document.getElementById('kpiOps').textContent   = opsUnicas.size;
+
+      renderTabela(todos);
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  });
+
+  function renderTabela(leads) {
+    const tbody = document.getElementById('tbody');
+    if (!leads.length) {
+      tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="icon">🎯</div><p>Nenhum acesso registrado ainda.</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = leads.map(l => {
+      const f  = l.fields;
+      const dt = f['Data e hora do acesso'] ? new Date(f['Data e hora do acesso']).toLocaleString('pt-BR') : '—';
+      const wa = f['WhatsApp'] ? `<a href="https://wa.me/55${f['WhatsApp'].replace(/\D/g,'')}" target="_blank" style="color:var(--navy)">${f['WhatsApp']}</a>` : '—';
+      return `<tr>
+        <td><strong>${f['Nome'] || '—'}</strong></td>
+        <td>${wa}</td>
+        <td style="font-size:13px">${f['Título da oportunidade'] || '—'}</td>
+        <td style="font-size:13px">${f['Parceiro que compartilhou'] || '—'}</td>
+        <td style="font-size:13px">${dt}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function filtrar() {
+    const t = document.getElementById('fTexto').value.toLowerCase();
+    renderTabela(todos.filter(l => {
+      const f = l.fields;
+      return !t
+        || (f['Nome'] || '').toLowerCase().includes(t)
+        || (f['WhatsApp'] || '').includes(t)
+        || (f['Parceiro que compartilhou'] || '').toLowerCase().includes(t)
+        || (f['Título da oportunidade'] || '').toLowerCase().includes(t);
+    }));
+  }
+</script>
+</body>
+</html>

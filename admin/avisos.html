@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Avisos</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">📢 Avisos</h1>
+      <button class="btn btn-gold" onclick="abrirModal()">➕ Novo Aviso</button>
+    </div>
+    <div class="page-body">
+      <div class="card">
+        <div id="avisosLista">
+          <div class="text-center text-muted" style="padding:28px">Carregando…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal novo aviso -->
+<div class="modal-overlay hidden" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Publicar Aviso</span>
+      <button class="modal-close" onclick="fecharModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="required">Mensagem</label>
+        <textarea id="msgAviso" rows="4" placeholder="Digite o aviso para os parceiros…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="publicar()">Publicar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/avisos.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Avisos');
+
+  requireAuth(true).then(async (profile) => {
+    renderUserChip(profile);
+    await carregarAvisos();
+  });
+
+  async function carregarAvisos() {
+    try {
+      const data   = await API.avisos.listar();
+      const avisos = data.records || [];
+      const el     = document.getElementById('avisosLista');
+
+      if (!avisos.length) {
+        el.innerHTML = `<div class="empty-state"><div class="icon">📭</div><p>Nenhum aviso publicado ainda.</p></div>`;
+        return;
+      }
+
+      el.innerHTML = avisos.map(a => `
+        <div style="padding:14px 0;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-start">
+          <div style="width:38px;height:38px;border-radius:50%;background:var(--gold);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📢</div>
+          <div style="flex:1">
+            <div style="font-size:15px">${a.fields['Mensagem'] || ''}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:6px">
+              Publicado em ${a.fields['Data e hora'] ? new Date(a.fields['Data e hora']).toLocaleString('pt-BR') : '—'}
+            </div>
+          </div>
+        </div>`).join('');
+    } catch (err) {
+      showToast('Erro ao carregar avisos: ' + err.message, 'error');
+    }
+  }
+
+  function abrirModal() { document.getElementById('modal').classList.remove('hidden'); }
+  function fecharModal() { document.getElementById('modal').classList.add('hidden'); }
+
+  async function publicar() {
+    const msg = document.getElementById('msgAviso').value.trim();
+    if (!msg) { showToast('Digite a mensagem.', 'error'); return; }
+    try {
+      await API.avisos.criar({ mensagem: msg });
+      showToast('Aviso publicado!', 'success');
+      fecharModal();
+      document.getElementById('msgAviso').value = '';
+      await carregarAvisos();
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+name = "modonexo-worker"
+main = "index.js"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+[vars]
+AIRTABLE_BASE = "appt6mRYfyo5Aq6Db"
+
+# Secrets (não coloque aqui — use: wrangler secret put AIRTABLE_API_KEY)
+# wrangler secret put AIRTABLE_API_KEY
+# wrangler secret put FIREBASE_API_KEY

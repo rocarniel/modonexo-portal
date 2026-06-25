@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Login</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="login-page">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="brand">MODO<span class="accent">nexo</span></div>
+        <div class="sub">Portal de Oportunidades Imobiliárias</div>
+      </div>
+
+      <div id="alertLogin" class="alert alert-error" style="display:none"></div>
+
+      <form id="formLogin">
+        <div class="form-group">
+          <label for="email">E-mail</label>
+          <input type="email" id="email" placeholder="seu@email.com" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label for="senha">Senha</label>
+          <input type="password" id="senha" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btnLogin">
+          Entrar
+        </button>
+      </form>
+
+      <div class="divider"></div>
+
+      <div class="text-center" style="font-size:13px; color:var(--text-muted)">
+        <a href="#" id="linkEsqueci" style="color:var(--navy)">Esqueci minha senha</a>
+        &nbsp;·&nbsp;
+        <a href="cadastro.html" style="color:var(--gold)">Quero ser parceiro</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    firebase.initializeApp(CONFIG.firebase);
+
+    // Se já logado, redireciona
+    firebase.auth().onAuthStateChanged((user) => {
+      if (user) {
+        window.location.href = isAdmin(user.email)
+          ? "admin/mapa.html"
+          : "parceiro/dashboard.html";
+      }
+    });
+
+    document.getElementById("formLogin").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn   = document.getElementById("btnLogin");
+      const alert = document.getElementById("alertLogin");
+      alert.style.display = "none";
+      btn.disabled = true;
+      btn.textContent = "Entrando…";
+
+      try {
+        const email = document.getElementById("email").value.trim();
+        const senha = document.getElementById("senha").value;
+        await login(email, senha);
+        // onAuthStateChanged cuida do redirect
+      } catch (err) {
+        let msg = "E-mail ou senha incorretos.";
+        if (err.code === "auth/too-many-requests") msg = "Muitas tentativas. Aguarde alguns minutos.";
+        if (err.code === "auth/user-disabled")     msg = "Usuário suspenso. Entre em contato com a MODO.";
+        alert.textContent = msg;
+        alert.style.display = "flex";
+        btn.disabled = false;
+        btn.textContent = "Entrar";
+      }
+    });
+
+    document.getElementById("linkEsqueci").addEventListener("click", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("email").value.trim();
+      if (!email) { alert("Digite seu e-mail primeiro."); return; }
+      try {
+        await sendPasswordReset(email);
+        document.getElementById("alertLogin").className = "alert alert-success";
+        document.getElementById("alertLogin").textContent = "Link de redefinição enviado para " + email;
+        document.getElementById("alertLogin").style.display = "flex";
+      } catch {
+        alert("Não foi possível enviar o e-mail. Verifique o endereço.");
+      }
+    });
+  </script>
+</body>
+</html>

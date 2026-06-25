@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Avisos</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">📢 Avisos da Equipe MODO</h1>
+    </div>
+    <div class="page-body">
+      <div class="card">
+        <div id="avisosLista">
+          <div class="text-center text-muted" style="padding:28px">Carregando…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_PARCEIRO, '/parceiro/avisos.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Avisos');
+
+  requireAuth().then(async (profile) => {
+    renderUserChip(profile);
+    try {
+      const data   = await API.avisos.listar();
+      const avisos = data.records || [];
+      const el     = document.getElementById('avisosLista');
+
+      if (!avisos.length) {
+        el.innerHTML = `<div class="empty-state"><div class="icon">📭</div><p>Nenhum aviso no momento.</p></div>`;
+        return;
+      }
+
+      el.innerHTML = avisos.map(a => `
+        <div style="padding:16px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">📢</div>
+            <div style="flex:1">
+              <div style="font-size:15px;color:var(--text)">${a.fields['Mensagem'] || ''}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:6px">
+                ${a.fields['Data e hora'] ? new Date(a.fields['Data e hora']).toLocaleString('pt-BR') : ''}
+              </div>
+            </div>
+          </div>
+        </div>`).join('');
+    } catch (err) {
+      showToast('Erro ao carregar avisos: ' + err.message, 'error');
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Demandas</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">🔍 Demandas</h1>
+      <button class="btn btn-gold" onclick="abrirModal()">➕ Nova Demanda</button>
+    </div>
+    <div class="page-body">
+      <div id="demandasGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+        <div class="text-muted text-center" style="padding:28px;grid-column:1/-1">Carregando…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay hidden" id="modal">
+  <div class="modal" style="max-width:580px">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTitulo">Nova Demanda</span>
+      <button class="modal-close" onclick="fecharModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="alertModal" class="alert alert-error" style="display:none"></div>
+      <div class="form-group">
+        <label class="required">Título</label>
+        <input type="text" id="dTitulo" placeholder="Ex: Área para loteamento em SP">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo de imóvel</label>
+          <select id="dTipo">
+            <option value="">Selecione…</option>
+            <option>Área para loteamento</option><option>Apartamento</option>
+            <option>Casa</option><option>Terreno</option>
+            <option>Comercial</option><option>Galpão</option>
+            <option>Rural</option><option>Outro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Localização desejada</label>
+          <input type="text" id="dLocal" placeholder="Ex: Grande SP, interior de MG">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Área mínima (m²)</label>
+          <input type="number" id="dAreaMin" placeholder="0">
+        </div>
+        <div class="form-group">
+          <label>Área máxima (m²)</label>
+          <input type="number" id="dAreaMax" placeholder="0">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Valor máximo (R$)</label>
+        <input type="number" id="dValor" placeholder="0">
+      </div>
+      <div class="form-group">
+        <label>Descrição</label>
+        <textarea id="dDesc" rows="3" placeholder="Detalhes sobre o imóvel procurado…"></textarea>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="dVisivel" style="width:18px;height:18px">
+        <label for="dVisivel" style="margin:0;font-size:14px;cursor:pointer">Visível para parceiros agora</label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()" id="btnSalvar">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/demandas.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Demandas');
+
+  let demandas = [], editandoId = null;
+
+  requireAuth(true).then(async (profile) => {
+    renderUserChip(profile);
+    await carregar();
+  });
+
+  async function carregar() {
+    try {
+      const data = await API.demandas.listar();
+      demandas   = data.records || [];
+      renderGrid(demandas);
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  }
+
+  function renderGrid(lista) {
+    const el = document.getElementById('demandasGrid');
+    if (!lista.length) {
+      el.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="icon">🔍</div><p>Nenhuma demanda criada.</p></div>`;
+      return;
+    }
+    el.innerHTML = lista.map(d => {
+      const f       = d.fields;
+      const visivel = f['Visível para parceiros'];
+      const areaMin = f['Área mínima (m²)'];
+      const areaMax = f['Área máxima (m²)'];
+
+      return `
+        <div class="card demand-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <span class="badge ${visivel ? 'badge-ativo' : 'badge-inativo'}">${visivel ? '● Visível' : '○ Oculto'}</span>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm btn-outline" onclick="editar('${d.id}')">✏️ Editar</button>
+              <button class="btn btn-sm ${visivel ? 'btn-danger' : 'btn-gold'}" onclick="alternarVisibilidade('${d.id}',${!visivel})">
+                ${visivel ? 'Ocultar' : 'Publicar'}
+              </button>
+            </div>
+          </div>
+          <div class="demand-title">${f['Título'] || '—'}</div>
+          <div class="demand-meta" style="margin-top:8px">
+            ${f['Tipo de imóvel'] ? `<span>🏷️ ${f['Tipo de imóvel']}</span>` : ''}
+            ${f['Localização desejada'] ? `<span>📍 ${f['Localização desejada']}</span>` : ''}
+            ${(areaMin || areaMax) ? `<span>📐 ${areaMin?.toLocaleString('pt-BR') || '?'} – ${areaMax?.toLocaleString('pt-BR') || '?'} m²</span>` : ''}
+            ${f['Valor máximo (R$)'] ? `<span>💰 até ${formatMoeda(f['Valor máximo (R$)'])}</span>` : ''}
+          </div>
+          ${f['Descrição'] ? `<p style="font-size:13px;color:var(--text-muted);margin-top:10px;line-height:1.5">${f['Descrição']}</p>` : ''}
+        </div>`;
+    }).join('');
+  }
+
+  function abrirModal(id = null) {
+    editandoId = id;
+    document.getElementById('modalTitulo').textContent = id ? 'Editar Demanda' : 'Nova Demanda';
+    if (!id) {
+      ['dTitulo','dLocal','dDesc'].forEach(i => document.getElementById(i).value = '');
+      ['dTipo'].forEach(i => document.getElementById(i).value = '');
+      ['dAreaMin','dAreaMax','dValor'].forEach(i => document.getElementById(i).value = '');
+      document.getElementById('dVisivel').checked = true;
+    }
+    document.getElementById('alertModal').style.display = 'none';
+    document.getElementById('modal').classList.remove('hidden');
+  }
+
+  function editar(id) {
+    const d = demandas.find(x => x.id === id);
+    if (!d) return;
+    const f = d.fields;
+    editandoId = id;
+    document.getElementById('dTitulo').value   = f['Título'] || '';
+    document.getElementById('dTipo').value     = f['Tipo de imóvel'] || '';
+    document.getElementById('dLocal').value    = f['Localização desejada'] || '';
+    document.getElementById('dAreaMin').value  = f['Área mínima (m²)'] || '';
+    document.getElementById('dAreaMax').value  = f['Área máxima (m²)'] || '';
+    document.getElementById('dValor').value    = f['Valor máximo (R$)'] || '';
+    document.getElementById('dDesc').value     = f['Descrição'] || '';
+    document.getElementById('dVisivel').checked = f['Visível para parceiros'] || false;
+    document.getElementById('alertModal').style.display = 'none';
+    document.getElementById('modalTitulo').textContent  = 'Editar Demanda';
+    document.getElementById('modal').classList.remove('hidden');
+  }
+
+  function fecharModal() { document.getElementById('modal').classList.add('hidden'); editandoId = null; }
+
+  async function salvar() {
+    const titulo = document.getElementById('dTitulo').value.trim();
+    if (!titulo) {
+      document.getElementById('alertModal').textContent = 'Informe o título.';
+      document.getElementById('alertModal').style.display = 'flex'; return;
+    }
+    const payload = {
+      titulo,
+      tipo:     document.getElementById('dTipo').value,
+      local:    document.getElementById('dLocal').value,
+      areaMin:  parseFloat(document.getElementById('dAreaMin').value) || null,
+      areaMax:  parseFloat(document.getElementById('dAreaMax').value) || null,
+      valor:    parseFloat(document.getElementById('dValor').value) || null,
+      descricao: document.getElementById('dDesc').value,
+      visivel:  document.getElementById('dVisivel').checked,
+    };
+    try {
+      if (editandoId) await API.demandas.atualizar(editandoId, payload);
+      else            await API.demandas.criar(payload);
+      showToast(editandoId ? 'Demanda atualizada!' : 'Demanda criada!', 'success');
+      fecharModal();
+      await carregar();
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  }
+
+  async function alternarVisibilidade(id, visivel) {
+    try {
+      await API.demandas.atualizar(id, { visivel });
+      showToast(visivel ? 'Demanda publicada!' : 'Demanda ocultada!', 'success');
+      await carregar();
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  }
+</script>
+</body>
+</html>

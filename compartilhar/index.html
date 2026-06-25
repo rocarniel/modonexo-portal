@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oportunidade — MODO Nexo</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    body { background: var(--bg); }
+    .gate { max-width: 480px; margin: 40px auto; padding: 0 16px; }
+    .conteudo { max-width: 700px; margin: 0 auto; padding: 20px 16px 60px; }
+    #mapPublico { height: 260px; border-radius: 10px; margin-top: 12px; }
+    .thumb-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .thumb-row img { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 1px solid var(--border); }
+    .aviso-confidencial {
+      background: #fef9ec;
+      border: 1px solid var(--gold);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 13px;
+      color: #7a5c00;
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+    .lightbox { position: fixed; inset:0; background:rgba(0,0,0,.9); z-index:9999; display:flex; align-items:center; justify-content:center; }
+    .lightbox.hidden { display:none; }
+    .lightbox img { max-width:95vw; max-height:90vh; border-radius:8px; }
+    .lightbox-close { position:absolute; top:16px; right:20px; color:#fff; font-size:32px; cursor:pointer; background:none; border:none; }
+  </style>
+</head>
+<body>
+
+<div class="public-header">
+  <div class="brand">MODOnexo</div>
+  <span style="font-size:12px;color:rgba(255,255,255,0.6)">Oportunidade Imobiliária</span>
+</div>
+
+<!-- PORTÃO: coleta nome e WhatsApp antes de mostrar o conteúdo -->
+<div id="portao" class="gate">
+  <div class="card" style="margin-top:0">
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:36px;margin-bottom:8px">🔒</div>
+      <h2 style="font-size:18px;color:var(--navy);margin-bottom:6px">Oportunidade Exclusiva</h2>
+    </div>
+
+    <div class="aviso-confidencial">
+      <strong>📋 Acesso registrado por confidencialidade.</strong><br>
+      Esta oportunidade é compartilhada em caráter estritamente confidencial. O acesso é registrado para proteger os direitos do corretor responsável pela captação e garantir a rastreabilidade do interesse de todos os envolvidos.<br><br>
+      <strong>Seu cadastro é também sua proteção</strong> — ele comprova a data e a origem do seu primeiro contato com esta oportunidade, prevenindo disputas futuras.
+    </div>
+
+    <div id="alertPortao" class="alert alert-error" style="display:none"></div>
+
+    <form id="formPortao">
+      <div class="form-group">
+        <label class="required">Seu nome completo</label>
+        <input type="text" id="pNome" placeholder="Como prefere ser chamado" required>
+      </div>
+      <div class="form-group">
+        <label class="required">Seu WhatsApp</label>
+        <input type="tel" id="pWa" placeholder="(11) 99999-9999" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg" id="btnAcessar">
+        Acessar oportunidade →
+      </button>
+    </form>
+
+    <p style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:14px">
+      Seus dados são usados apenas para registro de rastreabilidade desta operação imobiliária.
+    </p>
+  </div>
+</div>
+
+<!-- CONTEÚDO DA OPORTUNIDADE (oculto até passar pelo portão) -->
+<div id="oportunidadeConteudo" class="conteudo" style="display:none">
+
+  <div style="margin-bottom:16px">
+    <span id="badgeOrigem"></span>
+    <span id="badgeTipo" class="badge badge-analise" style="margin-left:6px"></span>
+  </div>
+
+  <h1 id="opTitulo" style="font-size:24px;color:var(--navy);margin-bottom:4px"></h1>
+  <p id="opLocalizacao" style="font-size:15px;color:var(--text-muted);margin-bottom:20px"></p>
+
+  <!-- Dados principais -->
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="opDados"></div>
+  </div>
+
+  <!-- Mapa -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title" style="margin-bottom:8px">📍 Localização</div>
+    <div id="mapPublico"></div>
+  </div>
+
+  <!-- Imagens -->
+  <div class="card" id="cardImagens" style="display:none;margin-bottom:16px">
+    <div class="card-title" style="margin-bottom:10px">🖼️ Imagens</div>
+    <div class="thumb-row" id="galeriaImagens"></div>
+  </div>
+
+  <!-- Vídeo -->
+  <div class="card" id="cardVideo" style="display:none;margin-bottom:16px">
+    <div class="card-title" style="margin-bottom:10px">🎬 Vídeo</div>
+    <div id="videoEmbed"></div>
+  </div>
+
+  <!-- Observações -->
+  <div class="card" id="cardObs" style="display:none;margin-bottom:16px">
+    <div class="card-title" style="margin-bottom:8px">📝 Observações</div>
+    <p id="opObs" style="font-size:14px;line-height:1.6;color:var(--text)"></p>
+  </div>
+
+  <!-- Parceiro -->
+  <div class="card" style="margin-bottom:16px;background:var(--navy);color:#fff">
+    <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Corretor responsável</div>
+    <div style="font-size:17px;font-weight:bold" id="opParceiro"></div>
+    <div style="margin-top:10px">
+      <a id="opWa" href="#" target="_blank" class="btn" style="background:var(--gold);color:#fff;border:none">
+        📱 Falar pelo WhatsApp
+      </a>
+    </div>
+  </div>
+
+  <p style="font-size:11px;color:var(--text-muted);text-align:center">
+    Seu acesso a esta oportunidade foi registrado em <strong id="dataAcesso"></strong>.<br>
+    Referência: <span id="tokenRef" style="font-family:monospace"></span>
+  </p>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox hidden" id="lightbox" onclick="fecharLightbox()">
+  <button class="lightbox-close">✕</button>
+  <img id="lightboxImg" src="">
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/api.js"></script>
+<script>
+  // Sem Firebase nesta página — override para não quebrar api.js
+  async function getIdToken() { return null; }
+
+  const token = new URLSearchParams(location.search).get('token');
+  if (!token) { document.body.innerHTML = '<div class="empty-state" style="padding:60px"><div class="icon">⚠️</div><p>Link inválido ou expirado.</p></div>'; }
+
+  let opPayload = null;
+
+  document.getElementById('formPortao').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn   = document.getElementById('btnAcessar');
+    const alert = document.getElementById('alertPortao');
+    alert.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Verificando…';
+
+    const nome = document.getElementById('pNome').value.trim();
+    const wa   = document.getElementById('pWa').value.trim();
+
+    try {
+      // Buscar dados da oportunidade
+      const data = await API.publico.oportunidade(token);
+      if (data.error) throw new Error(data.error);
+      opPayload = data;
+
+      // Registrar lead
+      await API.leads.registrar({ nome, whatsapp: wa, token });
+
+      // Mostrar conteúdo
+      document.getElementById('portao').style.display            = 'none';
+      document.getElementById('oportunidadeConteudo').style.display = '';
+      renderOportunidade(data, nome, wa);
+
+    } catch (err) {
+      alert.textContent    = 'Não foi possível carregar a oportunidade. Tente novamente.';
+      alert.style.display  = 'flex';
+      btn.disabled = false; btn.textContent = 'Acessar oportunidade →';
+    }
+  });
+
+  function renderOportunidade(op, nomeAcesso, waAcesso) {
+    const f = op.fields || op;
+
+    document.getElementById('opTitulo').textContent     = f['Título'] || 'Oportunidade Exclusiva';
+    document.getElementById('opLocalizacao').textContent = [f['Município'], f['Estado']].filter(Boolean).join(', ') || '';
+    document.getElementById('badgeTipo').textContent    = f['Tipo de imóvel'] || '';
+    document.getElementById('dataAcesso').textContent   = new Date().toLocaleString('pt-BR');
+    document.getElementById('tokenRef').textContent     = token;
+
+    document.getElementById('opDados').innerHTML = [
+      ['Tipo',      f['Tipo de imóvel']],
+      ['Finalidade',f['Tipo de negócio']],
+      ['Área',      f['Área (m²)'] ? f['Área (m²)'].toLocaleString('pt-BR') + ' m²' : null],
+      ['Valor',     f['Valor pretendido (R$)'] ? 'R$ ' + Number(f['Valor pretendido (R$)']).toLocaleString('pt-BR') : null],
+    ].filter(([,v]) => v).map(([l,v]) => `
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted)">${l}</div>
+        <div style="font-size:16px;font-weight:bold;color:var(--navy)">${v}</div>
+      </div>`).join('');
+
+    // Mapa
+    const mapP = L.map('mapPublico').setView([-14.235, -51.925], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(mapP);
+    if (f['Latitude'] && f['Longitude']) {
+      L.marker([f['Latitude'], f['Longitude']]).addTo(mapP);
+      mapP.setView([f['Latitude'], f['Longitude']], 12);
+    }
+    if (f['Link KMZ/KML']) { try { omnivore.kml(f['Link KMZ/KML']).addTo(mapP); } catch {} }
+
+    // Imagens
+    if (f['_imagens']?.length) {
+      document.getElementById('cardImagens').style.display = '';
+      document.getElementById('galeriaImagens').innerHTML  = f['_imagens'].map(url =>
+        `<img src="${url}" onclick="abrirLightbox('${url}')" alt="">`).join('');
+    }
+
+    // Vídeo
+    if (f['Link de vídeo']) {
+      document.getElementById('cardVideo').style.display = '';
+      const url  = f['Link de vídeo'];
+      const ytId = url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1];
+      document.getElementById('videoEmbed').innerHTML = ytId
+        ? `<iframe width="100%" height="220" src="https://www.youtube.com/embed/${ytId}" frameborder="0" allowfullscreen style="border-radius:8px"></iframe>`
+        : `<a href="${url}" target="_blank" class="btn btn-outline">▶️ Abrir vídeo</a>`;
+    }
+
+    // Obs
+    if (f['Observações']) {
+      document.getElementById('cardObs').style.display = '';
+      document.getElementById('opObs').textContent     = f['Observações'];
+    }
+
+    // Parceiro
+    const parceiro = f['_parceiro'] || {};
+    document.getElementById('opParceiro').textContent = parceiro.nome || (f['Nome Completo (from Parceiros)']?.[0]) || '—';
+    if (parceiro.whatsapp) {
+      document.getElementById('opWa').href = `https://wa.me/55${parceiro.whatsapp.replace(/\D/g,'')}?text=${encodeURIComponent('Olá! Acessei a oportunidade "' + (f['Título']||'') + '" pelo portal MODOnexo e tenho interesse.')}`;
+    } else {
+      document.getElementById('opWa').style.display = 'none';
+    }
+  }
+
+  function abrirLightbox(url) {
+    document.getElementById('lightboxImg').src = url;
+    document.getElementById('lightbox').classList.remove('hidden');
+  }
+  function fecharLightbox() { document.getElementById('lightbox').classList.add('hidden'); }
+</script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Demandas</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">🔍 Demandas MODO</h1>
+    </div>
+    <div class="page-body">
+      <div class="alert alert-info mb-16">
+        Abaixo estão os perfis de imóveis que a equipe MODO está buscando ativamente. Se você tiver ou encontrar algo parecido, cadastre como nova oportunidade.
+      </div>
+      <div id="demandasGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px">
+        <div class="text-muted text-center" style="padding:28px;grid-column:1/-1">Carregando…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_PARCEIRO, '/parceiro/demandas.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Demandas MODO');
+
+  requireAuth().then(async (profile) => {
+    renderUserChip(profile);
+    try {
+      const data     = await API.demandas.listar();
+      const demandas = data.records || [];
+      const el       = document.getElementById('demandasGrid');
+
+      if (!demandas.length) {
+        el.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="icon">🔍</div><p>Nenhuma demanda publicada no momento.</p></div>`;
+        return;
+      }
+
+      el.innerHTML = demandas.map(d => {
+        const f = d.fields;
+        const areaMin = f['Área mínima (m²)'];
+        const areaMax = f['Área máxima (m²)'];
+        const areaStr = areaMin || areaMax
+          ? `${areaMin ? areaMin.toLocaleString('pt-BR') : '?'} – ${areaMax ? areaMax.toLocaleString('pt-BR') : '?'} m²`
+          : null;
+
+        return `
+          <div class="demand-card card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <span class="badge badge-analise">${f['Tipo de imóvel'] || 'Imóvel'}</span>
+              <span style="font-size:12px;color:var(--text-muted)">${formatData(f['Data de publicação'])}</span>
+            </div>
+            <div class="demand-title">${f['Título'] || 'Demanda'}</div>
+            <div class="demand-meta" style="margin:10px 0">
+              ${f['Localização desejada'] ? `<span>📍 ${f['Localização desejada']}</span>` : ''}
+              ${areaStr ? `<span>📐 ${areaStr}</span>` : ''}
+              ${f['Valor máximo (R$)'] ? `<span>💰 até ${formatMoeda(f['Valor máximo (R$)'])}</span>` : ''}
+            </div>
+            ${f['Descrição'] ? `<p style="font-size:13px;color:var(--text-muted);margin-top:8px">${f['Descrição']}</p>` : ''}
+            <div style="margin-top:14px">
+              <a href="nova-oportunidade.html" class="btn btn-gold btn-sm btn-block">Tenho este imóvel → Cadastrar</a>
+            </div>
+          </div>`;
+      }).join('');
+    } catch (err) {
+      showToast('Erro ao carregar demandas: ' + err.message, 'error');
+    }
+  });
+</script>
+</body>
+</html>

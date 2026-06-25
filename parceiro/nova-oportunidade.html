@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Nova Oportunidade</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #mapPin { height: 300px; border-radius: 10px; border: 1.5px solid var(--border); margin-top: 8px; }
+    .tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid var(--border); }
+    .tab { padding: 10px 18px; cursor: pointer; font-size: 14px; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--text-muted); transition: all .2s; }
+    .tab.active { color: var(--navy); border-bottom-color: var(--navy); font-weight: bold; }
+    .tab-panel { display: none; } .tab-panel.active { display: block; }
+    .upload-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .thumb { width: 80px; height: 80px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); }
+    .step-bar { display: flex; gap: 0; margin-bottom: 28px; }
+    .step { flex: 1; text-align: center; font-size: 12px; padding: 8px 4px; background: var(--bg); border: 1px solid var(--border); color: var(--text-muted); }
+    .step:first-child { border-radius: 8px 0 0 8px; }
+    .step:last-child  { border-radius: 0 8px 8px 0; }
+    .step.done { background: var(--navy); color: #fff; border-color: var(--navy); }
+    .step.current { background: var(--gold); color: #fff; border-color: var(--gold); font-weight: bold; }
+  </style>
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+
+    <div class="page-header">
+      <h1 class="page-title" id="pageTitle">Nova Oportunidade</h1>
+    </div>
+
+    <div class="page-body">
+      <div class="card" style="max-width:800px">
+        <div id="alertForm" class="alert alert-error" style="display:none"></div>
+
+        <form id="formOp" novalidate>
+
+          <!-- SEÇÃO 1: Dados básicos -->
+          <div class="section-title">📌 Dados do Imóvel</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">Tipo de imóvel</label>
+              <select id="tipo" required>
+                <option value="">Selecione…</option>
+                <option>Área para loteamento</option>
+                <option>Apartamento</option>
+                <option>Casa</option>
+                <option>Terreno</option>
+                <option>Comercial</option>
+                <option>Galpão</option>
+                <option>Rural</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="required">Finalidade</label>
+              <select id="finalidade" required>
+                <option value="">Selecione…</option>
+                <option>Venda</option>
+                <option>Locação</option>
+                <option>Permuta</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Área (m²)</label>
+              <input type="number" id="area" placeholder="Ex: 5000" min="0" step="any">
+            </div>
+            <div class="form-group">
+              <label class="required">Valor pretendido (R$)</label>
+              <input type="number" id="valor" placeholder="Ex: 1500000" min="0" step="any" required>
+            </div>
+          </div>
+
+          <!-- SEÇÃO 2: Localização -->
+          <div class="section-title mt-24">📍 Localização</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>CEP</label>
+              <input type="text" id="cep" placeholder="00000-000" maxlength="9">
+              <div class="form-hint">Digite o CEP para preencher automaticamente</div>
+            </div>
+            <div class="form-group">
+              <label>Endereço (rua, número, bairro)</label>
+              <input type="text" id="endereco" placeholder="Preenchido pelo CEP ou manualmente">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">Município</label>
+              <input type="text" id="municipio" required placeholder="Ex: Campinas">
+            </div>
+            <div class="form-group">
+              <label class="required">Estado</label>
+              <select id="estado" required>
+                <option value="">Selecione…</option>
+                <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+                <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+                <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+                <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+                <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+                <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+                <option>SP</option><option>SE</option><option>TO</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Mapa pin -->
+          <div class="form-group">
+            <label>📌 Localização no mapa <span style="font-weight:normal;color:var(--text-muted)">(clique para fixar o pino)</span></label>
+            <div id="mapPin"></div>
+            <div class="form-hint" id="coordInfo">Nenhum pino fixado ainda. Para áreas rurais sem CEP, use o mapa.</div>
+          </div>
+
+          <!-- KMZ/KML -->
+          <div class="form-group">
+            <label>🗂️ Link do arquivo KMZ/KML</label>
+            <input type="url" id="kmlLink" placeholder="Cole aqui o link do Google Drive (compartilhado)">
+            <div class="form-hint">Compartilhe o arquivo no Drive e cole o link aqui. O contorno aparecerá no mapa.</div>
+          </div>
+
+          <!-- SEÇÃO 3: Comissão -->
+          <div class="section-title mt-24">💰 Comissão</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Comissão (%)</label>
+              <input type="number" id="comissao" placeholder="Ex: 5" min="0" max="100" step="0.1">
+            </div>
+            <div class="form-group">
+              <label>Detalhes da comissão</label>
+              <input type="text" id="detComissao" placeholder="Ex: 50% para cada parte, exclusividade de 90 dias">
+            </div>
+          </div>
+
+          <!-- SEÇÃO 4: Arquivos -->
+          <div class="section-title mt-24">📎 Arquivos</div>
+
+          <div class="form-group">
+            <label>Imagens (JPG/PNG — máx. 10 MB cada)</label>
+            <div class="upload-zone" id="zoneImagens" onclick="document.getElementById('inputImagens').click()">
+              <div class="icon">🖼️</div>
+              <p><strong>Clique para selecionar</strong> ou arraste as imagens aqui</p>
+              <p>JPG, PNG — até 10 MB cada</p>
+            </div>
+            <input type="file" id="inputImagens" multiple accept="image/jpeg,image/png">
+            <div class="upload-preview" id="previewImagens"></div>
+          </div>
+
+          <div class="form-group">
+            <label>Documentos (PDF — máx. 20 MB cada)</label>
+            <div class="upload-zone" id="zoneDocs" onclick="document.getElementById('inputDocs').click()">
+              <div class="icon">📄</div>
+              <p><strong>Clique para selecionar</strong> os PDFs</p>
+              <p>PDF — até 20 MB cada</p>
+            </div>
+            <input type="file" id="inputDocs" multiple accept="application/pdf">
+            <div class="file-list" id="listDocs"></div>
+          </div>
+
+          <div class="form-group">
+            <label>🎬 Vídeo — link YouTube ou Google Drive</label>
+            <input type="url" id="videoLink" placeholder="https://youtube.com/watch?v=...">
+          </div>
+
+          <!-- SEÇÃO 5: Observações -->
+          <div class="section-title mt-24">📝 Observações</div>
+          <div class="form-group">
+            <textarea id="obs" rows="4" placeholder="Informações adicionais sobre o imóvel, acesso, condições especiais…"></textarea>
+          </div>
+
+          <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:24px">
+            <a href="oportunidades.html" class="btn btn-outline">Cancelar</a>
+            <button type="submit" class="btn btn-gold btn-lg" id="btnEnviar">Enviar Oportunidade</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="loading-overlay hidden" id="loadingOverlay">
+  <div class="spinner"></div>
+  <span style="color:var(--navy);font-size:14px">Enviando oportunidade…</span>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+
+  // Detectar se é captação interna
+  const params = new URLSearchParams(location.search);
+  const origemMODO = params.get('origem') === 'MODO';
+  if (origemMODO) document.getElementById('pageTitle').textContent = 'Nova Oportunidade (Captação MODO)';
+
+  const navItems = origemMODO ? NAV_ADMIN : NAV_PARCEIRO;
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(navItems, origemMODO ? '/admin/mapa.html' : '/parceiro/nova-oportunidade.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Nova Oportunidade');
+
+  let userProfile = null;
+  requireAuth(origemMODO).then(p => {
+    userProfile = p;
+    renderUserChip(p);
+  });
+
+  // ── Mapa com pino ───────────────────────────────
+  const map = L.map('mapPin').setView([-14.235, -51.925], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+
+  let marker = null;
+  let lat = null, lng = null;
+
+  map.on('click', (e) => {
+    lat = e.latlng.lat.toFixed(6);
+    lng = e.latlng.lng.toFixed(6);
+    if (marker) marker.setLatLng(e.latlng);
+    else marker = L.marker(e.latlng, { draggable: true }).addTo(map);
+    marker.on('dragend', (ev) => {
+      lat = ev.target.getLatLng().lat.toFixed(6);
+      lng = ev.target.getLatLng().lng.toFixed(6);
+      document.getElementById('coordInfo').textContent = `Pino fixado: ${lat}, ${lng}`;
+    });
+    document.getElementById('coordInfo').textContent = `Pino fixado: ${lat}, ${lng}`;
+  });
+
+  // ── CEP auto-fill ────────────────────────────────
+  document.getElementById('cep').addEventListener('blur', async (e) => {
+    const v = e.target.value.replace(/\D/g,'');
+    if (v.length !== 8) return;
+    try {
+      const d = await buscarCEP(v);
+      document.getElementById('endereco').value  = [d.logradouro, d.bairro].filter(Boolean).join(', ');
+      document.getElementById('municipio').value = d.localidade;
+      document.getElementById('estado').value    = d.uf;
+    } catch { /* CEP não encontrado — usuário preenche manualmente */ }
+  });
+
+  // Máscara CEP
+  document.getElementById('cep').addEventListener('input', (e) => {
+    let v = e.target.value.replace(/\D/g,'');
+    if (v.length > 5) v = v.slice(0,5) + '-' + v.slice(5,8);
+    e.target.value = v;
+  });
+
+  // ── Upload imagens ───────────────────────────────
+  const imagensFiles = [];
+  document.getElementById('inputImagens').addEventListener('change', (e) => {
+    Array.from(e.target.files).forEach(f => imagensFiles.push(f));
+    renderImagePreviews();
+  });
+
+  function renderImagePreviews() {
+    const el = document.getElementById('previewImagens');
+    el.innerHTML = imagensFiles.map((f, i) => {
+      const url = URL.createObjectURL(f);
+      return `<div style="position:relative">
+        <img src="${url}" class="thumb" title="${f.name}">
+        <button type="button" onclick="removeImagem(${i})" style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border:none;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center">×</button>
+      </div>`;
+    }).join('');
+  }
+
+  window.removeImagem = (i) => { imagensFiles.splice(i, 1); renderImagePreviews(); };
+
+  // ── Upload docs ──────────────────────────────────
+  const docsFiles = [];
+  document.getElementById('inputDocs').addEventListener('change', (e) => {
+    Array.from(e.target.files).forEach(f => docsFiles.push(f));
+    renderDocList();
+  });
+
+  function renderDocList() {
+    const el = document.getElementById('listDocs');
+    el.innerHTML = docsFiles.map((f, i) => `
+      <div class="file-item">
+        <span>📄</span>
+        <span class="file-name">${f.name}</span>
+        <span class="file-size">${(f.size/1024/1024).toFixed(1)} MB</span>
+        <button type="button" class="file-remove" onclick="removeDoc(${i})">✕</button>
+      </div>`).join('');
+  }
+
+  window.removeDoc = (i) => { docsFiles.splice(i, 1); renderDocList(); };
+
+  // Drag & drop
+  ['zoneImagens','zoneDocs'].forEach(id => {
+    const zone = document.getElementById(id);
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault(); zone.classList.remove('drag-over');
+      const inputId = id === 'zoneImagens' ? 'inputImagens' : 'inputDocs';
+      const arr = id === 'zoneImagens' ? imagensFiles : docsFiles;
+      Array.from(e.dataTransfer.files).forEach(f => arr.push(f));
+      id === 'zoneImagens' ? renderImagePreviews() : renderDocList();
+    });
+  });
+
+  // ── Submit ───────────────────────────────────────
+  document.getElementById('formOp').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn   = document.getElementById('btnEnviar');
+    const alert = document.getElementById('alertForm');
+    alert.style.display = 'none';
+
+    if (!document.getElementById('tipo').value)      { alert.textContent = 'Selecione o tipo de imóvel.'; alert.style.display='flex'; return; }
+    if (!document.getElementById('finalidade').value){ alert.textContent = 'Selecione a finalidade.';     alert.style.display='flex'; return; }
+    if (!document.getElementById('municipio').value) { alert.textContent = 'Informe o município.';        alert.style.display='flex'; return; }
+    if (!document.getElementById('estado').value)    { alert.textContent = 'Selecione o estado.';        alert.style.display='flex'; return; }
+
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    showLoading(true);
+
+    try {
+      // Upload imagens
+      const urlsImagens = [];
+      for (const f of imagensFiles) {
+        const res = await uploadCloudinary(f, 'modo-imagens');
+        urlsImagens.push({ url: res.secure_url, nome: f.name, tipo: 'imagem' });
+      }
+
+      // Upload docs
+      const urlsDocs = [];
+      for (const f of docsFiles) {
+        const res = await uploadCloudinary(f, 'modo-docs');
+        urlsDocs.push({ url: res.secure_url, nome: f.name, tipo: 'documento' });
+      }
+
+      const token = gerarTokenLocal();
+
+      const payload = {
+        tipo:           document.getElementById('tipo').value,
+        finalidade:     document.getElementById('finalidade').value,
+        cep:            document.getElementById('cep').value,
+        endereco:       document.getElementById('endereco').value,
+        municipio:      document.getElementById('municipio').value,
+        estado:         document.getElementById('estado').value,
+        area:           parseFloat(document.getElementById('area').value) || null,
+        valor:          parseFloat(document.getElementById('valor').value) || null,
+        comissao:       parseFloat(document.getElementById('comissao').value) || null,
+        detComissao:    document.getElementById('detComissao').value,
+        videoLink:      document.getElementById('videoLink').value,
+        kmlLink:        document.getElementById('kmlLink').value,
+        observacoes:    document.getElementById('obs').value,
+        lat:            lat ? parseFloat(lat) : null,
+        lng:            lng ? parseFloat(lng) : null,
+        arquivos:       [...urlsImagens, ...urlsDocs],
+        token,
+        origem:         origemMODO ? 'MODO' : 'Parceiro',
+        emailParceiro:  userProfile?.email,
+      };
+
+      await API.oportunidades.criar(payload);
+      showToast('Oportunidade enviada com sucesso!', 'success');
+      setTimeout(() => location.href = 'oportunidades.html', 1500);
+    } catch (err) {
+      alert.textContent = 'Erro: ' + err.message;
+      alert.style.display = 'flex';
+      btn.disabled = false; btn.textContent = 'Enviar Oportunidade';
+    } finally {
+      showLoading(false);
+    }
+  });
+</script>
+</body>
+</html>

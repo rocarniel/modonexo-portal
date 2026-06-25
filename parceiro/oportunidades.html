@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Minhas Oportunidades</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">Minhas Oportunidades</h1>
+      <a href="nova-oportunidade.html" class="btn btn-gold">➕ Nova</a>
+    </div>
+    <div class="page-body">
+      <div class="filters-bar">
+        <select id="filtroStatus" onchange="filtrar()">
+          <option value="">Todos os status</option>
+          <option>Recebido</option>
+          <option>Em análise</option>
+          <option>Em negociação</option>
+          <option>Aguardando documentos</option>
+          <option>Viável</option>
+          <option>Condições inviáveis</option>
+          <option>Descartado</option>
+        </select>
+        <select id="filtroTipo" onchange="filtrar()">
+          <option value="">Todos os tipos</option>
+          <option>Área para loteamento</option>
+          <option>Apartamento</option><option>Casa</option>
+          <option>Terreno</option><option>Comercial</option>
+          <option>Galpão</option><option>Rural</option>
+        </select>
+        <input type="text" id="filtroTexto" placeholder="🔍 Buscar…" oninput="filtrar()" style="min-width:180px">
+      </div>
+
+      <div class="card">
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Título / Tipo</th>
+                <th>Município</th>
+                <th>Área</th>
+                <th>Valor</th>
+                <th>Status</th>
+                <th>Data</th>
+                <th>Compartilhar</th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr><td colspan="7" class="text-center text-muted" style="padding:28px">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal compartilhamento -->
+<div class="modal-overlay hidden" id="modalCompartilhar">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Compartilhar Oportunidade</span>
+      <button class="modal-close" onclick="fecharModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:14px;margin-bottom:16px;color:var(--text-muted)">
+        Copie o link abaixo e envie para potenciais interessados. O acesso será registrado e você receberá uma notificação.
+      </p>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="linkCompartilhar" readonly style="flex:1;background:var(--bg)">
+        <button class="btn btn-navy" onclick="copiarLink()" style="background:var(--navy);color:#fff;border:none;padding:10px 14px;border-radius:8px;cursor:pointer">Copiar</button>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px">
+        <a id="btnWhats" href="#" target="_blank" class="btn btn-gold btn-block" style="background:#25D366;border:none">
+          📱 Enviar por WhatsApp
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_PARCEIRO, '/parceiro/oportunidades.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Oportunidades');
+
+  let todasOps = [];
+
+  requireAuth().then(async (profile) => {
+    renderUserChip(profile);
+    try {
+      const data = await API.oportunidades.listar();
+      todasOps = data.records || [];
+      renderTabela(todasOps);
+    } catch (err) {
+      showToast('Erro ao carregar: ' + err.message, 'error');
+    }
+  });
+
+  function renderTabela(ops) {
+    const tbody = document.getElementById('tbody');
+    if (!ops.length) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="icon">📭</div><p>Nenhuma oportunidade encontrada.</p><a href="nova-oportunidade.html" class="btn btn-gold">Cadastrar agora</a></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = ops.map(o => `
+      <tr>
+        <td>
+          <strong>${o.fields['Título'] || '—'}</strong><br>
+          <span style="font-size:12px;color:var(--text-muted)">${o.fields['Tipo de imóvel'] || ''}</span>
+        </td>
+        <td>${o.fields['Município'] || '—'}<br><span style="font-size:12px;color:var(--text-muted)">${o.fields['Estado'] || ''}</span></td>
+        <td>${o.fields['Área (m²)'] ? o.fields['Área (m²)'].toLocaleString('pt-BR') + ' m²' : '—'}</td>
+        <td>${formatMoeda(o.fields['Valor pretendido (R$)'])}</td>
+        <td>${badgeStatus(o.fields['Status'])}</td>
+        <td>${formatData(o.fields['Data de entrada'])}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="abrirCompartilhar('${o.id}','${o.fields['Token de compartilhamento'] || ''}','${encodeURIComponent(o.fields['Título'] || '')}')">
+            🔗 Link
+          </button>
+        </td>
+      </tr>`).join('');
+  }
+
+  function filtrar() {
+    const status = document.getElementById('filtroStatus').value;
+    const tipo   = document.getElementById('filtroTipo').value;
+    const texto  = document.getElementById('filtroTexto').value.toLowerCase();
+    const filtrado = todasOps.filter(o => {
+      const f = o.fields;
+      return (!status || f['Status'] === status)
+          && (!tipo   || f['Tipo de imóvel'] === tipo)
+          && (!texto  || (f['Título'] || '').toLowerCase().includes(texto)
+                      || (f['Município'] || '').toLowerCase().includes(texto));
+    });
+    renderTabela(filtrado);
+  }
+
+  async function abrirCompartilhar(id, tokenExistente, titulo) {
+    let token = tokenExistente;
+    if (!token) {
+      try {
+        const res = await API.oportunidades.gerarToken(id);
+        token = res.token;
+      } catch (err) {
+        showToast('Erro ao gerar link: ' + err.message, 'error'); return;
+      }
+    }
+    const link = CONFIG.portalUrl + '/compartilhar/?token=' + token;
+    document.getElementById('linkCompartilhar').value = link;
+    const texto = `Olá! Tenho uma oportunidade exclusiva para você: ${decodeURIComponent(titulo)}. Acesse para ver todos os detalhes: ${link}`;
+    document.getElementById('btnWhats').href = 'https://wa.me/?text=' + encodeURIComponent(texto);
+    document.getElementById('modalCompartilhar').classList.remove('hidden');
+  }
+
+  function fecharModal() { document.getElementById('modalCompartilhar').classList.add('hidden'); }
+
+  function copiarLink() {
+    navigator.clipboard.writeText(document.getElementById('linkCompartilhar').value);
+    showToast('Link copiado!', 'success');
+  }
+</script>
+</body>
+</html>
