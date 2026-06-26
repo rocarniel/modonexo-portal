@@ -142,10 +142,15 @@
           </div>
 
           <!-- KMZ/KML -->
-          <div class="form-group">
-            <label>🗂️ Link do arquivo KMZ/KML</label>
-            <input type="url" id="kmlLink" placeholder="Cole aqui o link do Google Drive (compartilhado)">
-            <div class="form-hint">Compartilhe o arquivo no Drive e cole o link aqui. O contorno aparecerá no mapa.</div>
+          <div class="form-group" id="grupo-kmz" style="display:none">
+            <label>🗂️ Arquivo KMZ/KML <span style="font-weight:400;font-size:0.82em;color:#666">(delimitação da área no mapa)</span></label>
+            <div class="upload-zone" id="zoneKmz" onclick="document.getElementById('inputKmz').click()">
+              <div class="icon">🗺️</div>
+              <p><strong>Clique para selecionar</strong> o arquivo KMZ ou KML</p>
+              <p>KMZ, KML — até 20 MB</p>
+            </div>
+            <input type="file" id="inputKmz" accept=".kmz,.kml">
+            <div class="file-list" id="listKmz"></div>
           </div>
 
           <!-- SEÇÃO 3: Comissão -->
@@ -349,8 +354,27 @@
 
   window.removeDoc = (i) => { docsFiles.splice(i, 1); renderDocList(); };
 
+  // ── KMZ/KML upload ──────────────────────────────
+  const TIPOS_KMZ = ['Terreno','Galpão','Rural','Loteamento','Incorporação'];
+  document.getElementById('tipo').addEventListener('change', function() {
+    document.getElementById('grupo-kmz').style.display = TIPOS_KMZ.includes(this.value) ? '' : 'none';
+  });
+
+  let kmzFile = null;
+  document.getElementById('inputKmz').addEventListener('change', (e) => {
+    kmzFile = e.target.files[0] || null;
+    const el = document.getElementById('listKmz');
+    el.innerHTML = kmzFile ? `
+      <div class="file-item">
+        <span>🗺️</span>
+        <span class="file-name">${kmzFile.name}</span>
+        <span class="file-size">${(kmzFile.size/1024/1024).toFixed(1)} MB</span>
+        <button type="button" class="file-remove" onclick="kmzFile=null;document.getElementById('listKmz').innerHTML=''">✕</button>
+      </div>` : '';
+  });
+
   // Drag & drop
-  ['zoneImagens','zoneDocs'].forEach(id => {
+  ['zoneImagens','zoneDocs','zoneKmz'].forEach(id => {
     const zone = document.getElementById(id);
     zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
     zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
@@ -423,6 +447,13 @@
         urlsDocs.push({ url: res.secure_url, nome: f.name, tipo: 'documento' });
       }
 
+      // Upload KMZ/KML
+      let kmlLinkFinal = '';
+      if (kmzFile) {
+        const res = await uploadCloudinary(kmzFile, 'modo-kmz');
+        kmlLinkFinal = res.secure_url;
+      }
+
       const token = gerarTokenLocal();
 
       const payload = {
@@ -439,7 +470,7 @@
         comissao:       parseFloat(document.getElementById('comissao').value) || null,
         detComissao:    document.getElementById('detComissao').value,
         videoLink:      document.getElementById('videoLink').value,
-        kmlLink:        document.getElementById('kmlLink').value,
+        kmlLink:        kmlLinkFinal,
         observacoes:    document.getElementById('obs').value,
         lat:            lat ? parseFloat(lat) : null,
         lng:            lng ? parseFloat(lng) : null,
