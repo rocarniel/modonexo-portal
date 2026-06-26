@@ -63,8 +63,19 @@ async function airtable(env, method, table, recordId = "", params = {}, body = n
   if (method === "GET" && Object.keys(params).length) {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
-      if (Array.isArray(v)) v.forEach(x => qs.append(k, x));
-      else qs.append(k, v);
+      if (Array.isArray(v)) {
+        v.forEach((item, i) => {
+          if (typeof item === "object") {
+            for (const [sk, sv] of Object.entries(item)) {
+              qs.append(`${k}[${i}][${sk}]`, sv);
+            }
+          } else {
+            qs.append(k, item);
+          }
+        });
+      } else {
+        qs.append(k, v);
+      }
     }
     url += "?" + qs.toString();
   }
@@ -117,6 +128,7 @@ function camposOportunidade(payload, parceiro) {
     "Município":                payload.municipio   || null,
     "Estado":                   payload.estado      || null,
     "Área (m²)":                payload.area        || null,
+    "Área privativa (m²)":      payload.areaPrivativa || null,
     "Valor pretendido (R$)":    payload.valor       || null,
     "Comissão (%)":             payload.comissao != null ? payload.comissao / 100 : null,
     "Detalhes da comissão":     payload.detComissao || null,
@@ -172,8 +184,30 @@ async function criarUsuarioFirebase(env, email, senha) {
   return res.ok;
 }
 
+// ── Renovar webhooks Airtable ─────────────────────
+const WEBHOOKS = [
+  "ach7DkgzzJEvs2gxa", // parceiros
+  "achAVwGhSXSiDTUhJ", // oportunidades
+];
+
+async function renovarWebhooks(env) {
+  for (const id of WEBHOOKS) {
+    await fetch(
+      `https://api.airtable.com/v0/bases/appt6mRYfyo5Aq6Db/webhooks/${id}/refresh`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` },
+      }
+    );
+  }
+}
+
 // ── ROTEADOR ──────────────────────────────────────
 export default {
+  async scheduled(event, env) {
+    await renovarWebhooks(env);
+  },
+
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS });
@@ -197,9 +231,9 @@ export default {
         { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
       );
       const payloadData = await payloadRes.json();
-      const changedRecords = payloadData?.payloads?.flatMap(p =>
-        Object.keys(p.changedTablesById?.tblQSJNfoSTabmt3q?.changedFieldsByRecord || {})
-      ) || [];
+      const changedRecords = [...new Set(payloadData?.payloads?.flatMap(p =>
+        Object.keys(p.changedTablesById?.tblQSJNfoSTabmt3q?.changedRecordsById || {})
+      ) || [])];
 
       for (const recordId of changedRecords) {
         const rec    = await airtable(env, "GET", TBL.parceiros, recordId);
@@ -210,16 +244,25 @@ export default {
         const creci  = fields["CRECI"] || "";
 
         if (status === "Pendente") {
+          const urlAprovar = `https://modonexo-worker.modonexo.workers.dev/aprovar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
+          const urlRejeitar = `https://modonexo-worker.modonexo.workers.dev/rejeitar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
           await sendEmail(env, {
             to: "modogestaonexo@gmail.com",
             subject: "Novo parceiro aguardando aprovação — Portal MODO",
-            html: `<p>Novo parceiro cadastrado e aguardando aprovação:</p>
-                   <ul>
-                     <li><strong>Nome:</strong> ${nome}</li>
-                     <li><strong>E-mail:</strong> ${email}</li>
-                     <li><strong>CRECI:</strong> ${creci}</li>
-                   </ul>
-                   <p>Acesse o Airtable para aprovar ou rejeitar.</p>`,
+            html: `
+              <div style="font-family:sans-serif;max-width:520px;margin:0 auto">
+                <h2 style="color:#1a1a2e">Novo parceiro cadastrado</h2>
+                <ul>
+                  <li><strong>Nome:</strong> ${nome}</li>
+                  <li><strong>E-mail:</strong> ${email}</li>
+                  <li><strong>CRECI:</strong> ${creci}</li>
+                </ul>
+                <div style="margin-top:24px;display:flex;gap:12px">
+                  <a href="${urlAprovar}" style="background:#16a34a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">✅ Aprovar</a>
+                  &nbsp;&nbsp;
+                  <a href="${urlRejeitar}" style="background:#dc2626;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">❌ Rejeitar</a>
+                </div>
+              </div>`,
           });
         }
 
@@ -243,9 +286,10 @@ export default {
         { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
       );
       const payloadData = await payloadRes.json();
-      const createdRecords = payloadData?.payloads?.flatMap(p =>
-        Object.keys(p.changedTablesById?.tblAPZlD7YJnhZcWF?.createdRecordsById || {})
-      ) || [];
+      const createdRecords = [...new Set(payloadData?.payloads?.flatMap(p => [
+        ...Object.keys(p.changedTablesById?.tblAPZlD7YJnhZcWF?.createdRecordsById || {}),
+        ...Object.keys(p.changedTablesById?.tblAPZlD7YJnhZcWF?.changedRecordsById || {}),
+      ]) || [])];
 
       for (const recordId of createdRecords) {
         const rec    = await airtable(env, "GET", TBL.oportunidades, recordId);
@@ -279,6 +323,51 @@ export default {
       }
 
       return corsResponse({ ok: true });
+    }
+
+    // ── Aprovar / Rejeitar parceiro por link no email ──
+
+    if (path === "/aprovar/parceiro" && method === "GET") {
+      const secret = url.searchParams.get("secret");
+      const recordId = url.searchParams.get("recordId");
+      if (secret !== env.WEBHOOK_SECRET || !recordId) return errorResponse("Não autorizado", 401);
+
+      const rec = await airtable(env, "PATCH", TBL.parceiros, recordId, {}, {
+        fields: { "Status": "Ativo" },
+      });
+      const nome  = rec.fields?.["Nome Completo"] || "";
+      const email = rec.fields?.["E-Mail"] || "";
+
+      if (email) await criarUsuarioFirebase(env, email, "Modo@2030");
+
+      return new Response(`
+        <html><body style="font-family:sans-serif;text-align:center;padding:60px">
+          <h2 style="color:#16a34a">✅ Parceiro aprovado!</h2>
+          <p><strong>${nome}</strong> agora tem acesso ao portal MODOnexo.</p>
+          <p style="color:#666">Você pode fechar esta aba.</p>
+        </body></html>`, {
+        headers: { "Content-Type": "text/html;charset=UTF-8" },
+      });
+    }
+
+    if (path === "/rejeitar/parceiro" && method === "GET") {
+      const secret = url.searchParams.get("secret");
+      const recordId = url.searchParams.get("recordId");
+      if (secret !== env.WEBHOOK_SECRET || !recordId) return errorResponse("Não autorizado", 401);
+
+      const rec = await airtable(env, "PATCH", TBL.parceiros, recordId, {}, {
+        fields: { "Status": "Suspenso" },
+      });
+      const nome = rec.fields?.["Nome Completo"] || "";
+
+      return new Response(`
+        <html><body style="font-family:sans-serif;text-align:center;padding:60px">
+          <h2 style="color:#dc2626">❌ Parceiro rejeitado</h2>
+          <p><strong>${nome}</strong> foi marcado como Suspenso.</p>
+          <p style="color:#666">Você pode fechar esta aba.</p>
+        </body></html>`, {
+        headers: { "Content-Type": "text/html;charset=UTF-8" },
+      });
     }
 
     // ── Rotas públicas (sem auth) ──────────────────

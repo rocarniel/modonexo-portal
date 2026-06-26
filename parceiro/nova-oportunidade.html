@@ -70,9 +70,14 @@
           </div>
 
           <div class="form-row">
-            <div class="form-group">
-              <label>Área (m²)</label>
+            <div class="form-group" id="grupo-area-total">
+              <label class="required" id="label-area">Área (m²)</label>
               <input type="number" id="area" placeholder="Ex: 5000" min="0" step="any">
+            </div>
+            <div class="form-group" id="grupo-area-privativa" style="display:none">
+              <label>Área privativa (m²)</label>
+              <input type="number" id="areaPrivativa" placeholder="Ex: 120" min="0" step="any">
+              <div class="form-hint">Ao menos uma das áreas é obrigatória</div>
             </div>
             <div class="form-group">
               <label class="required">Valor pretendido (R$)</label>
@@ -314,6 +319,14 @@
     });
   });
 
+  // ── Área privativa para tipos com unidade ────────
+  const TIPOS_COM_PRIVATIVA = ['Apartamento','Casa residencial','Casa comercial','Sala comercial','Loja'];
+  document.getElementById('tipo').addEventListener('change', function() {
+    const temPrivativa = TIPOS_COM_PRIVATIVA.includes(this.value);
+    document.getElementById('grupo-area-privativa').style.display = temPrivativa ? '' : 'none';
+    document.getElementById('label-area').textContent = temPrivativa ? 'Área total (m²)' : 'Área (m²)';
+  });
+
   // ── Submit ───────────────────────────────────────
   document.getElementById('formOp').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -322,10 +335,15 @@
     alert.style.display = 'none';
 
     const finalidadeSelecionada = [...document.querySelectorAll('.finalidade-cb:checked')].map(cb => cb.value);
-    if (!document.getElementById('tipo').value)       { alert.textContent = 'Selecione o tipo de imóvel.'; alert.style.display='flex'; return; }
-    if (!finalidadeSelecionada.length)                { alert.textContent = 'Selecione ao menos uma finalidade.'; alert.style.display='flex'; return; }
-    if (!document.getElementById('municipio').value)  { alert.textContent = 'Informe o município.';        alert.style.display='flex'; return; }
-    if (!document.getElementById('estado').value)     { alert.textContent = 'Selecione o estado.';        alert.style.display='flex'; return; }
+    const areaVal         = parseFloat(document.getElementById('area').value) || null;
+    const areaPrivativaVal = parseFloat(document.getElementById('areaPrivativa').value) || null;
+    const tipoComPrivativa = ['Apartamento','Casa residencial','Casa comercial','Sala comercial','Loja'].includes(document.getElementById('tipo').value);
+
+    if (!document.getElementById('tipo').value)      { alert.textContent = 'Selecione o tipo de imóvel.'; alert.style.display='flex'; return; }
+    if (!finalidadeSelecionada.length)               { alert.textContent = 'Selecione ao menos uma finalidade.'; alert.style.display='flex'; return; }
+    if (!areaVal && !areaPrivativaVal)               { alert.textContent = 'Informe ao menos uma medida de área.'; alert.style.display='flex'; return; }
+    if (!document.getElementById('municipio').value) { alert.textContent = 'Informe o município.'; alert.style.display='flex'; return; }
+    if (!document.getElementById('estado').value)    { alert.textContent = 'Selecione o estado.'; alert.style.display='flex'; return; }
 
     btn.disabled = true; btn.textContent = 'Enviando…';
     showLoading(true);
@@ -354,7 +372,8 @@
         endereco:       document.getElementById('endereco').value,
         municipio:      document.getElementById('municipio').value,
         estado:         document.getElementById('estado').value,
-        area:           parseFloat(document.getElementById('area').value) || null,
+        area:           areaVal,
+        areaPrivativa:  areaPrivativaVal,
         valor:          parseFloat(document.getElementById('valor').value) || null,
         comissao:       parseFloat(document.getElementById('comissao').value) || null,
         detComissao:    document.getElementById('detComissao').value,
