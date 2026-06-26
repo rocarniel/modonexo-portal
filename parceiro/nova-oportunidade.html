@@ -247,17 +247,35 @@
   let marker = null;
   let lat = null, lng = null;
 
-  map.on('click', (e) => {
-    lat = e.latlng.lat.toFixed(6);
-    lng = e.latlng.lng.toFixed(6);
-    if (marker) marker.setLatLng(e.latlng);
-    else marker = L.marker(e.latlng, { draggable: true }).addTo(map);
-    marker.on('dragend', (ev) => {
+  async function geocodificacaoReversa(latlng) {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latlng.lat}&lon=${latlng.lng}&format=json&accept-language=pt-BR`);
+      const d = await r.json();
+      const a = d.address || {};
+      if (a.road)        document.getElementById('rua').value       = a.road;
+      if (a.suburb || a.neighbourhood) document.getElementById('bairro').value = a.suburb || a.neighbourhood;
+      if (a.city || a.town || a.village) document.getElementById('municipio').value = a.city || a.town || a.village;
+      if (a.state_code)  document.getElementById('estado').value    = a.state_code.replace('BR-','');
+    } catch {}
+  }
+
+  function fixarPino(latlng) {
+    lat = latlng.lat.toFixed(6);
+    lng = latlng.lng.toFixed(6);
+    if (marker) marker.setLatLng(latlng);
+    else marker = L.marker(latlng, { draggable: true }).addTo(map);
+    marker.on('dragend', async (ev) => {
       lat = ev.target.getLatLng().lat.toFixed(6);
       lng = ev.target.getLatLng().lng.toFixed(6);
       document.getElementById('coordInfo').textContent = `Pino fixado: ${lat}, ${lng}`;
+      await geocodificacaoReversa(ev.target.getLatLng());
     });
     document.getElementById('coordInfo').textContent = `Pino fixado: ${lat}, ${lng}`;
+  }
+
+  map.on('click', async (e) => {
+    fixarPino(e.latlng);
+    await geocodificacaoReversa(e.latlng);
   });
 
   // ── CEP auto-fill ────────────────────────────────
@@ -271,6 +289,16 @@
       document.getElementById('municipio').value = d.localidade || '';
       document.getElementById('estado').value    = d.uf         || '';
       if (d.logradouro) document.getElementById('numero').focus();
+
+      // Centralizar mapa no endereço
+      const endBusca = [d.logradouro, d.localidade, d.uf, 'Brasil'].filter(Boolean).join(', ');
+      const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(endBusca)}&format=json&limit=1`);
+      const geoData = await geoRes.json();
+      if (geoData[0]) {
+        const latlng = L.latLng(parseFloat(geoData[0].lat), parseFloat(geoData[0].lon));
+        map.setView(latlng, 16);
+        fixarPino(latlng);
+      }
     } catch { /* CEP não encontrado — usuário preenche manualmente */ }
   });
 
