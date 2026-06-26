@@ -36,7 +36,8 @@
           <div class="form-row">
             <div class="form-group">
               <label class="required">CRECI</label>
-              <input type="text" id="creci" placeholder="Ex: 12345-F" required>
+              <input type="text" id="creci" placeholder="Ex: 12345-F" required autocomplete="off" style="text-transform:uppercase">
+              <div class="form-hint" id="hintCreci" style="display:none;color:var(--error)"></div>
             </div>
             <div class="form-group">
               <label class="required">WhatsApp</label>
@@ -74,11 +75,39 @@
     // api.js usa getIdToken() que pode não existir aqui — override seguro
     async function getIdToken() { return null; }
 
+  // Validação de formato CRECI ao sair do campo
+  document.getElementById('creci').addEventListener('blur', function() {
+    const v = this.value.trim().toUpperCase();
+    this.value = v;
+    const hint = document.getElementById('hintCreci');
+    if (!v) { hint.style.display='none'; return; }
+    if (v === 'ISENTO') { hint.style.display='none'; return; }
+    // Aceita formatos: 12345-F, 12345F, 12345-PJ, 12345PJ, só números
+    const ok = /^\d{3,8}[-]?([A-Z]|PJ)?$/.test(v);
+    if (!ok) {
+      hint.textContent = 'Formato inválido. Use: 12345-F ou 12345-PJ';
+      hint.style.display = 'block';
+    } else {
+      hint.style.display = 'none';
+    }
+  });
+
     document.getElementById("formCadastro").addEventListener("submit", async (e) => {
       e.preventDefault();
       const btn   = document.getElementById("btnCad");
       const alert = document.getElementById("alertCad");
       alert.style.display = "none";
+
+      // Validar CRECI antes de enviar
+      const creciVal = document.getElementById('creci').value.trim().toUpperCase();
+      const creciOk  = creciVal === 'ISENTO' || /^\d{3,8}[-]?([A-Z]|PJ)?$/.test(creciVal);
+      if (!creciOk) {
+        document.getElementById('hintCreci').textContent = 'Formato inválido. Use: 12345-F ou 12345-PJ';
+        document.getElementById('hintCreci').style.display = 'block';
+        document.getElementById('creci').focus();
+        return;
+      }
+
       btn.disabled = true;
       btn.textContent = "Enviando…";
 
