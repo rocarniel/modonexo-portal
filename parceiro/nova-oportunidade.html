@@ -81,7 +81,8 @@
             </div>
             <div class="form-group">
               <label class="required">Valor pretendido (R$)</label>
-              <input type="number" id="valor" placeholder="Ex: 1500000" min="0" step="any" required>
+              <input type="text" id="valorDisplay" placeholder="Ex: R$ 1.500.000,00" inputmode="numeric" autocomplete="off">
+              <input type="hidden" id="valor">
             </div>
           </div>
 
@@ -319,6 +320,14 @@
     });
   });
 
+  // ── Máscara BRL para valor ───────────────────────
+  document.getElementById('valorDisplay').addEventListener('input', function() {
+    const raw = this.value.replace(/\D/g, '');
+    const num = parseFloat(raw) / 100;
+    document.getElementById('valor').value = num || '';
+    this.value = raw ? num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
+  });
+
   // ── Área privativa para tipos com unidade ────────
   const TIPOS_COM_PRIVATIVA = ['Apartamento','Casa residencial','Casa comercial','Sala comercial','Loja'];
   document.getElementById('tipo').addEventListener('change', function() {
@@ -375,6 +384,7 @@
         area:           areaVal,
         areaPrivativa:  areaPrivativaVal,
         valor:          parseFloat(document.getElementById('valor').value) || null,
+
         comissao:       parseFloat(document.getElementById('comissao').value) || null,
         detComissao:    document.getElementById('detComissao').value,
         videoLink:      document.getElementById('videoLink').value,
