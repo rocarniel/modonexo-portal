@@ -138,6 +138,40 @@ function camposOportunidade(payload, parceiro) {
   return Object.fromEntries(Object.entries(campos).filter(([, v]) => v !== null));
 }
 
+// ── Enviar email via Resend ───────────────────────
+async function sendEmail(env, { to, subject, html }) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: "MODOnexo <noreply@modonexo.com.br>",
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("Resend error:", err);
+  }
+}
+
+// ── Criar usuário no Firebase ─────────────────────
+async function criarUsuarioFirebase(env, email, senha) {
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${env.FIREBASE_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: senha, returnSecureToken: false }),
+    }
+  );
+  return res.ok;
+}
+
 // ── ROTEADOR ──────────────────────────────────────
 export default {
   async fetch(request, env) {
@@ -148,6 +182,104 @@ export default {
     const url      = new URL(request.url);
     const path     = url.pathname;
     const method   = request.method;
+
+    // ── Webhooks do Airtable (sem auth — validados por secret) ──
+
+    // Webhook: novo parceiro (tabela Parceiros)
+    if (path === "/webhook/parceiro" && method === "POST") {
+      const secret = url.searchParams.get("secret");
+      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+
+      await request.json(); // consumir body
+      const webhookId = "ach7DkgzzJEvs2gxa";
+      const payloadRes = await fetch(
+        `https://api.airtable.com/v0/bases/appt6mRYfyo5Aq6Db/webhooks/${webhookId}/payloads`,
+        { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
+      );
+      const payloadData = await payloadRes.json();
+      const changedRecords = payloadData?.payloads?.flatMap(p =>
+        Object.keys(p.changedTablesById?.tblQSJNfoSTabmt3q?.changedFieldsByRecord || {})
+      ) || [];
+
+      for (const recordId of changedRecords) {
+        const rec    = await airtable(env, "GET", TBL.parceiros, recordId);
+        const fields = rec.fields || {};
+        const status = fields["Status"];
+        const nome   = fields["Nome Completo"] || "";
+        const email  = fields["E-Mail"] || "";
+        const creci  = fields["CRECI"] || "";
+
+        if (status === "Pendente") {
+          await sendEmail(env, {
+            to: "modogestaonexo@gmail.com",
+            subject: "Novo parceiro aguardando aprovação — Portal MODO",
+            html: `<p>Novo parceiro cadastrado e aguardando aprovação:</p>
+                   <ul>
+                     <li><strong>Nome:</strong> ${nome}</li>
+                     <li><strong>E-mail:</strong> ${email}</li>
+                     <li><strong>CRECI:</strong> ${creci}</li>
+                   </ul>
+                   <p>Acesse o Airtable para aprovar ou rejeitar.</p>`,
+          });
+        }
+
+        if (status === "Ativo" && email) {
+          await criarUsuarioFirebase(env, email, "Modo@2030");
+        }
+      }
+
+      return corsResponse({ ok: true });
+    }
+
+    // Webhook: nova oportunidade (tabela Oportunidades)
+    if (path === "/webhook/oportunidade" && method === "POST") {
+      const secret = url.searchParams.get("secret");
+      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+
+      await request.json(); // consumir body
+      const webhookId = "achAVwGhSXSiDTUhJ";
+      const payloadRes = await fetch(
+        `https://api.airtable.com/v0/bases/appt6mRYfyo5Aq6Db/webhooks/${webhookId}/payloads`,
+        { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
+      );
+      const payloadData = await payloadRes.json();
+      const createdRecords = payloadData?.payloads?.flatMap(p =>
+        Object.keys(p.changedTablesById?.tblAPZlD7YJnhZcWF?.createdRecordsById || {})
+      ) || [];
+
+      for (const recordId of createdRecords) {
+        const rec    = await airtable(env, "GET", TBL.oportunidades, recordId);
+        const fields = rec.fields || {};
+        const titulo        = fields["Título"] || "sem título";
+        const emailParceiro = fields["E-mail do solicitante"] || "";
+        const municipio     = fields["Município"] || "";
+        const tipo          = fields["Tipo de imóvel"] || "";
+
+        if (emailParceiro && !fields["Parceiro"]) {
+          const parceiro = await getParceiroPorEmail(env, emailParceiro);
+          if (parceiro) {
+            await airtable(env, "PATCH", TBL.oportunidades, recordId, {}, {
+              fields: { "Parceiro": [parceiro.id] },
+            });
+          }
+        }
+
+        await sendEmail(env, {
+          to: "modogestaonexo@gmail.com",
+          subject: `Nova oportunidade cadastrada — ${titulo}`,
+          html: `<p>Nova oportunidade recebida no portal:</p>
+                 <ul>
+                   <li><strong>Título:</strong> ${titulo}</li>
+                   <li><strong>Tipo:</strong> ${tipo}</li>
+                   <li><strong>Município:</strong> ${municipio}</li>
+                   <li><strong>Parceiro:</strong> ${emailParceiro}</li>
+                 </ul>
+                 <p>Acesse o Airtable para ver os detalhes.</p>`,
+        });
+      }
+
+      return corsResponse({ ok: true });
+    }
 
     // ── Rotas públicas (sem auth) ──────────────────
 
