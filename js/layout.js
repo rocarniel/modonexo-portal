@@ -66,4 +66,6 @@ const NAV_ADMIN = [
   { icon: '🎯', label: 'Leads',              href: '/admin/leads.html' },
   { divider: true, label: 'Captação Interna' },
   { icon: '➕', label: 'Nova (MODO)',         href: '/parceiro/nova-oportunidade.html?origem=MODO' },
+  { divider: true, label: '' },
+  { icon: '📊', label: 'Métricas',           href: '/admin/metricas.html' },
 ];

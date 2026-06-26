@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODO Nexo — Métricas</title>
+  <link rel="stylesheet" href="../css/style.css?v=202606261624">
+  <style>
+    .met-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .met-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+    .met-num  { font-size: 36px; font-weight: 800; color: var(--navy); line-height: 1; }
+    .met-label{ font-size: 12px; color: var(--text-muted); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .bar-wrap  { margin-bottom: 10px; }
+    .bar-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+    .bar-track { background: var(--bg); border-radius: 99px; height: 10px; overflow: hidden; }
+    .bar-fill  { height: 100%; border-radius: 99px; background: var(--navy); transition: width .6s ease; }
+    .bar-fill.gold { background: var(--gold); }
+    .bar-fill.green { background: var(--success, #22c55e); }
+    .bar-fill.red   { background: var(--danger, #ef4444); }
+  </style>
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <h1 class="page-title">📊 Métricas</h1>
+      <span id="atualizadoEm" style="font-size:12px;color:var(--text-muted)"></span>
+    </div>
+
+    <div class="page-body" id="conteudo" style="display:none">
+
+      <!-- Cards de totais -->
+      <div class="met-grid" id="cardsGrid"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+        <!-- Status das oportunidades -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Oportunidades por status</span></div>
+          <div id="barStatus"></div>
+        </div>
+
+        <!-- Top municípios -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Top municípios</span></div>
+          <div id="barMunicipios"></div>
+        </div>
+
+        <!-- Tipos de imóvel -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Tipos de imóvel</span></div>
+          <div id="barTipos"></div>
+        </div>
+
+        <!-- Finalidades -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Finalidades</span></div>
+          <div id="barFinalidades"></div>
+        </div>
+
+      </div>
+    </div>
+    <div id="loadMsg" style="padding:40px;text-align:center;color:var(--text-muted)">Carregando métricas…</div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202606261624"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202606261624"></script>
+<script src="../js/config.js?v=202606261624"></script>
+<script src="../js/auth.js?v=202606261624"></script>
+<script src="../js/api.js?v=202606261624"></script>
+<script src="../js/layout.js?v=202606261624"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/metricas.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Métricas');
+
+  requireAuth(true).then(async (profile) => {
+    renderUserChip(profile);
+    try {
+      const [opRes, parcRes] = await Promise.all([
+        API.oportunidades.listar({ todos: true }),
+        API.parceiros.listar(),
+      ]);
+      const ops  = (opRes.records  || []).map(r => r.fields);
+      const parc = (parcRes.records || []).map(r => r.fields);
+
+      renderMetricas(ops, parc);
+      document.getElementById('loadMsg').style.display    = 'none';
+      document.getElementById('conteudo').style.display   = '';
+      document.getElementById('atualizadoEm').textContent =
+        'Atualizado em ' + new Date().toLocaleString('pt-BR');
+    } catch (err) {
+      document.getElementById('loadMsg').textContent = 'Erro ao carregar: ' + err.message;
+    }
+  });
+
+  function renderMetricas(ops, parc) {
+    const totalOps   = ops.length;
+    const totalParc  = parc.length;
+    const valorTotal = ops.reduce((s, o) => s + (o['Valor pretendido (R$)'] || 0), 0);
+    const viáveis    = ops.filter(o => o['Status'] === 'Viável').length;
+    const mesAtual   = new Date().getMonth();
+    const anoAtual   = new Date().getFullYear();
+    const novosMes   = ops.filter(o => {
+      if (!o['Data de entrada']) return false;
+      const d = new Date(o['Data de entrada']);
+      return d.getMonth() === mesAtual && d.getFullYear() === anoAtual;
+    }).length;
+
+    // Cards
+    document.getElementById('cardsGrid').innerHTML = [
+      [totalOps,   'Oportunidades'],
+      [totalParc,  'Parceiros ativos'],
+      [viáveis,    'Viáveis'],
+      [novosMes,   'Novas este mês'],
+      [formatMoeda(valorTotal), 'Valor total em carteira'],
+    ].map(([n, l]) => `
+      <div class="met-card">
+        <div class="met-num">${n}</div>
+        <div class="met-label">${l}</div>
+      </div>`).join('');
+
+    // Barras genéricas
+    renderBarras('barStatus',     contarCampo(ops, 'Status'),         8);
+    renderBarras('barMunicipios', contarCampo(ops, 'Município'),      6);
+    renderBarras('barTipos',      contarCampo(ops, 'Tipo de imóvel'), 6);
+    // Finalidades — campo pode ser múltiplo separado por vírgula
+    const finalMap = {};
+    ops.forEach(o => {
+      (o['Tipo de negócio'] || '').split(',').forEach(v => {
+        const k = v.trim(); if (!k) return;
+        finalMap[k] = (finalMap[k] || 0) + 1;
+      });
+    });
+    renderBarras('barFinalidades', finalMap, 6);
+  }
+
+  function contarCampo(ops, campo) {
+    return ops.reduce((acc, o) => {
+      const v = o[campo] || 'Não informado';
+      acc[v] = (acc[v] || 0) + 1;
+      return acc;
+    }, {});
+  }
+
+  function renderBarras(elId, map, max) {
+    const el = document.getElementById(elId);
+    if (!Object.keys(map).length) { el.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Sem dados.</p>'; return; }
+    const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, max);
+    const maior  = sorted[0][1];
+    el.innerHTML = sorted.map(([k, v]) => `
+      <div class="bar-wrap">
+        <div class="bar-label"><span>${k}</span><span><strong>${v}</strong></span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.round(v/maior*100)}%"></div></div>
+      </div>`).join('');
+  }
+
+  function formatMoeda(v) {
+    if (!v) return 'R$ 0';
+    if (v >= 1e9) return 'R$ ' + (v/1e9).toFixed(1).replace('.',',') + ' bi';
+    if (v >= 1e6) return 'R$ ' + (v/1e6).toFixed(1).replace('.',',') + ' mi';
+    if (v >= 1e3) return 'R$ ' + (v/1e3).toFixed(0) + ' mil';
+    return 'R$ ' + v.toLocaleString('pt-BR');
+  }
+</script>
+</body>
+</html>
