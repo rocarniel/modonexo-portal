@@ -281,7 +281,7 @@
       const data = await res.json();
       const feat = data.features?.[0];
       if (!feat) {
-        hint.textContent = 'Endereço não encontrado. Tente incluir a cidade (ex: "Av. das Arapongas 145, Balneário Camboriú").';
+        hint.textContent = 'Endereço não encontrado.';
         hint.style.color = '#dc2626';
         return;
       }
