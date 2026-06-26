@@ -127,7 +127,7 @@ function camposOportunidade(payload, parceiro) {
     "Endereço":                 payload.endereco    || null,
     "Município":                payload.municipio   || null,
     "Estado":                   payload.estado      || null,
-    "Área (m²)":                payload.area        || null,
+    "Área total (m²)":          payload.area          || null,
     "Área privativa (m²)":      payload.areaPrivativa || null,
     "Valor pretendido (R$)":    payload.valor       || null,
     "Comissão (%)":             payload.comissao != null ? payload.comissao / 100 : null,
