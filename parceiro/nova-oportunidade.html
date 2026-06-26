@@ -543,6 +543,7 @@
       };
 
       await API.oportunidades.criar(payload);
+      localStorage.removeItem('rascunho_oportunidade');
       showToast('Oportunidade enviada com sucesso!', 'success');
       setTimeout(() => location.href = 'oportunidades.html', 1500);
     } catch (err) {
@@ -553,6 +554,55 @@
       showLoading(false);
     }
   });
+
+  // ── Auto-save ────────────────────────────────────
+  const CAMPOS_TEXTO = ['tipo','rua','numero','bairro','municipio','estado','cep','comissao','detComissao','videoLink','obs'];
+  const CAMPOS_DISPLAY = ['areaDisplay','areaPrivativaDisplay','valorDisplay'];
+  const CAMPOS_HIDDEN  = ['area','areaPrivativa','valor'];
+
+  function salvarRascunho() {
+    const dados = {};
+    CAMPOS_TEXTO.forEach(id => { const el = document.getElementById(id); if(el) dados[id] = el.value; });
+    CAMPOS_DISPLAY.forEach(id => { const el = document.getElementById(id); if(el) dados[id] = el.value; });
+    CAMPOS_HIDDEN.forEach(id => { const el = document.getElementById(id); if(el) dados[id] = el.value; });
+    dados.finalidades = [...document.querySelectorAll('.finalidade-cb:checked')].map(cb => cb.value);
+    dados.lat = lat; dados.lng = lng;
+    localStorage.setItem('rascunho_oportunidade', JSON.stringify(dados));
+  }
+
+  function restaurarRascunho() {
+    const raw = localStorage.getItem('rascunho_oportunidade');
+    if (!raw) return;
+    const dados = JSON.parse(raw);
+    if (!dados.tipo && !dados.municipio) return;
+    if (!confirm('Encontramos um rascunho não enviado. Deseja restaurá-lo?')) {
+      localStorage.removeItem('rascunho_oportunidade'); return;
+    }
+    CAMPOS_TEXTO.forEach(id => { const el = document.getElementById(id); if(el && dados[id]) el.value = dados[id]; });
+    CAMPOS_DISPLAY.forEach(id => { const el = document.getElementById(id); if(el && dados[id]) el.value = dados[id]; });
+    CAMPOS_HIDDEN.forEach(id => { const el = document.getElementById(id); if(el && dados[id]) el.value = dados[id]; });
+    (dados.finalidades || []).forEach(v => {
+      const cb = document.querySelector(`.finalidade-cb[value="${v}"]`);
+      if (cb) cb.checked = true;
+    });
+    // Restaurar mapa
+    if (dados.lat && dados.lng) {
+      lat = dados.lat; lng = dados.lng;
+      const latlng = L.latLng(parseFloat(lat), parseFloat(lng));
+      map.setView(latlng, 16);
+      fixarPino(latlng);
+    }
+    // Disparar evento change no tipo para mostrar campos condicionais
+    document.getElementById('tipo').dispatchEvent(new Event('change'));
+  }
+
+  // Salva a cada 30 segundos e ao mudar qualquer campo
+  setInterval(salvarRascunho, 30000);
+  document.getElementById('formOp').addEventListener('change', salvarRascunho);
+  document.getElementById('formOp').addEventListener('input', salvarRascunho);
+
+  // Restaurar ao carregar (após mapa inicializar)
+  setTimeout(restaurarRascunho, 800);
 </script>
 </body>
 </html>
