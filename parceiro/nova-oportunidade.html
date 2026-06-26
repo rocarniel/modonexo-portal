@@ -57,13 +57,15 @@
               </select>
             </div>
             <div class="form-group">
-              <label class="required">Finalidade</label>
-              <select id="finalidade" required>
-                <option value="">Selecione…</option>
-                <option>Venda</option>
-                <option>Locação</option>
-                <option>Permuta</option>
-              </select>
+              <label class="required">Finalidade <span style="font-weight:400;font-size:0.82em;color:#666">(pode marcar mais de uma)</span></label>
+              <div id="finalidade-group" style="display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 0">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" class="finalidade-cb" value="Venda"> Venda</label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" class="finalidade-cb" value="Locação"> Locação</label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" class="finalidade-cb" value="Permuta"> Permuta</label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" class="finalidade-cb" value="Lançamento"> Lançamento</label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" class="finalidade-cb" value="Incorporação"> Incorporação</label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" class="finalidade-cb" value="Loteamento"> Loteamento</label>
+              </div>
             </div>
           </div>
 
@@ -319,10 +321,11 @@
     const alert = document.getElementById('alertForm');
     alert.style.display = 'none';
 
-    if (!document.getElementById('tipo').value)      { alert.textContent = 'Selecione o tipo de imóvel.'; alert.style.display='flex'; return; }
-    if (!document.getElementById('finalidade').value){ alert.textContent = 'Selecione a finalidade.';     alert.style.display='flex'; return; }
-    if (!document.getElementById('municipio').value) { alert.textContent = 'Informe o município.';        alert.style.display='flex'; return; }
-    if (!document.getElementById('estado').value)    { alert.textContent = 'Selecione o estado.';        alert.style.display='flex'; return; }
+    const finalidadeSelecionada = [...document.querySelectorAll('.finalidade-cb:checked')].map(cb => cb.value);
+    if (!document.getElementById('tipo').value)       { alert.textContent = 'Selecione o tipo de imóvel.'; alert.style.display='flex'; return; }
+    if (!finalidadeSelecionada.length)                { alert.textContent = 'Selecione ao menos uma finalidade.'; alert.style.display='flex'; return; }
+    if (!document.getElementById('municipio').value)  { alert.textContent = 'Informe o município.';        alert.style.display='flex'; return; }
+    if (!document.getElementById('estado').value)     { alert.textContent = 'Selecione o estado.';        alert.style.display='flex'; return; }
 
     btn.disabled = true; btn.textContent = 'Enviando…';
     showLoading(true);
@@ -346,7 +349,7 @@
 
       const payload = {
         tipo:           document.getElementById('tipo').value,
-        finalidade:     document.getElementById('finalidade').value,
+        finalidade:     finalidadeSelecionada.join(', '),
         cep:            document.getElementById('cep').value,
         endereco:       document.getElementById('endereco').value,
         municipio:      document.getElementById('municipio').value,
