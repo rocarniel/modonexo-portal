@@ -315,14 +315,17 @@
     const uf       = document.getElementById('estado').value;
     if (!rua || !numero || !municipio) return;
     try {
-      const endBusca = [rua, numero, municipio, uf, 'Brasil'].filter(Boolean).join(', ');
-      const geoRes  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(endBusca)}&format=json&limit=1`);
+      // Tenta endereço completo com número
+      const endBusca = `${rua}, ${numero}, ${municipio}, ${uf}, Brasil`;
+      const geoRes  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(endBusca)}&format=json&limit=1&addressdetails=1`);
       const geoData = await geoRes.json();
-      if (geoData[0]) {
+      if (geoData[0] && geoData[0].address?.house_number) {
+        // Encontrou o número exato — move o pino
         const latlng = L.latLng(parseFloat(geoData[0].lat), parseFloat(geoData[0].lon));
         map.setView(latlng, 18);
         fixarPino(latlng);
       }
+      // Se não encontrou número exato, mantém o pino onde está (do CEP)
     } catch {}
   });
 
