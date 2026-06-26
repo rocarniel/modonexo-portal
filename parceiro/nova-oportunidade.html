@@ -307,6 +307,25 @@
     } catch { /* CEP não encontrado — usuário preenche manualmente */ }
   });
 
+  // ── Número refina o pino ─────────────────────────
+  document.getElementById('numero').addEventListener('blur', async () => {
+    const rua      = document.getElementById('rua').value;
+    const numero   = document.getElementById('numero').value;
+    const municipio = document.getElementById('municipio').value;
+    const uf       = document.getElementById('estado').value;
+    if (!rua || !numero || !municipio) return;
+    try {
+      const endBusca = [rua, numero, municipio, uf, 'Brasil'].filter(Boolean).join(', ');
+      const geoRes  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(endBusca)}&format=json&limit=1`);
+      const geoData = await geoRes.json();
+      if (geoData[0]) {
+        const latlng = L.latLng(parseFloat(geoData[0].lat), parseFloat(geoData[0].lon));
+        map.setView(latlng, 18);
+        fixarPino(latlng);
+      }
+    } catch {}
+  });
+
   // Máscara CEP
   document.getElementById('cep').addEventListener('input', (e) => {
     let v = e.target.value.replace(/\D/g,'');
