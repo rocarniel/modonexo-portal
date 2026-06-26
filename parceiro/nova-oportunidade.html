@@ -141,6 +141,7 @@
               <input type="text" id="buscaMapa" placeholder="Buscar endereço no mapa…" style="flex:1">
               <button type="button" id="btnBuscaMapa" class="btn btn-secondary" style="white-space:nowrap">🔍 Buscar</button>
             </div>
+            <div class="form-hint" id="buscaMapaHint" style="margin-bottom:4px"></div>
             <div id="mapPin"></div>
             <div class="form-hint" id="coordInfo">Nenhum pino fixado. Use a busca acima ou clique no mapa para posicionar o pino.</div>
           </div>
@@ -271,12 +272,17 @@
   // ── Busca livre no mapa ──────────────────────────
   async function buscarNoMapa(termo) {
     if (!termo.trim()) return;
-    const municipio = document.getElementById('municipio').value;
-    const uf        = document.getElementById('estado').value;
-    const q = [termo, municipio, uf, 'Brasil'].filter(Boolean).join(', ');
-    const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1`);
+    // Busca só o que o usuário digitou + Brasil, sem inferir município dos campos
+    const q = termo.includes('Brasil') ? termo : `${termo}, Brasil`;
+    const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=br`);
     const data = await res.json();
-    if (!data.length) { alert('Endereço não encontrado. Tente ser mais específico ou clique no mapa.'); return; }
+    if (!data.length) {
+      const hint = document.getElementById('buscaMapaHint');
+      hint.textContent = 'Endereço não encontrado. Tente incluir a cidade (ex: "Av. das Arapongas 145, Balneário Camboriú").';
+      hint.style.color = '#dc2626';
+      return;
+    }
+    document.getElementById('buscaMapaHint').textContent = '';
     const best = data[0];
     const latlng = L.latLng(parseFloat(best.lat), parseFloat(best.lon));
     map.setView(latlng, 18);
