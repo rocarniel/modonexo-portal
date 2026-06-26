@@ -272,27 +272,34 @@
   // ── Busca livre no mapa ──────────────────────────
   async function buscarNoMapa(termo) {
     if (!termo.trim()) return;
-    // Busca só o que o usuário digitou + Brasil, sem inferir município dos campos
-    const q = termo.includes('Brasil') ? termo : `${termo}, Brasil`;
-    const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=br`);
-    const data = await res.json();
-    if (!data.length) {
-      const hint = document.getElementById('buscaMapaHint');
-      hint.textContent = 'Endereço não encontrado. Tente incluir a cidade (ex: "Av. das Arapongas 145, Balneário Camboriú").';
+    const hint = document.getElementById('buscaMapaHint');
+    hint.textContent = 'Buscando…';
+    hint.style.color = '#666';
+    try {
+      // Photon — melhor cobertura de numeração que Nominatim no Brasil
+      const res  = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(termo)}&limit=5&lang=pt&bbox=-73.99,-33.75,-28.84,5.27`);
+      const data = await res.json();
+      const feat = data.features?.[0];
+      if (!feat) {
+        hint.textContent = 'Endereço não encontrado. Tente incluir a cidade (ex: "Av. das Arapongas 145, Balneário Camboriú").';
+        hint.style.color = '#dc2626';
+        return;
+      }
+      hint.textContent = '';
+      const [lon, lat2] = feat.geometry.coordinates;
+      const latlng = L.latLng(lat2, lon);
+      map.setView(latlng, 18);
+      fixarPino(latlng);
+      // Preenche campos se estiverem vazios
+      const p = feat.properties || {};
+      if (!document.getElementById('rua').value && p.street)        document.getElementById('rua').value       = p.street;
+      if (!document.getElementById('bairro').value && p.district)   document.getElementById('bairro').value    = p.district;
+      if (!document.getElementById('municipio').value && p.city)    document.getElementById('municipio').value = p.city;
+      if (!document.getElementById('estado').value && p.state)      document.getElementById('estado').value    = p.state === 'Santa Catarina' ? 'SC' : p.state;
+    } catch {
+      hint.textContent = 'Erro na busca. Tente novamente.';
       hint.style.color = '#dc2626';
-      return;
     }
-    document.getElementById('buscaMapaHint').textContent = '';
-    const best = data[0];
-    const latlng = L.latLng(parseFloat(best.lat), parseFloat(best.lon));
-    map.setView(latlng, 18);
-    fixarPino(latlng);
-    // Preenche campos se estiverem vazios
-    const a = best.address || {};
-    if (!document.getElementById('rua').value && a.road)       document.getElementById('rua').value = a.road;
-    if (!document.getElementById('bairro').value && (a.suburb || a.neighbourhood)) document.getElementById('bairro').value = a.suburb || a.neighbourhood;
-    if (!document.getElementById('municipio').value && (a.city || a.town)) document.getElementById('municipio').value = a.city || a.town;
-    if (!document.getElementById('estado').value && a.state_code) document.getElementById('estado').value = a.state_code.replace('BR-','');
   }
 
   document.getElementById('btnBuscaMapa').addEventListener('click', () => {
