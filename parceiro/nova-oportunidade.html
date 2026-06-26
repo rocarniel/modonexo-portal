@@ -136,14 +136,9 @@
 
           <!-- Mapa pin -->
           <div class="form-group">
-            <label>📌 Localização no mapa</label>
-            <div style="display:flex;gap:8px;margin-bottom:8px">
-              <input type="text" id="buscaMapa" placeholder="Buscar endereço no mapa…" style="flex:1">
-              <button type="button" id="btnBuscaMapa" class="btn btn-secondary" style="white-space:nowrap">🔍 Buscar</button>
-            </div>
-            <div id="buscaMapaHint" style="font-size:0.82em;min-height:1em;margin-bottom:4px"></div>
+            <label>📌 Localização no mapa <span style="font-weight:normal;color:var(--text-muted)">(clique para fixar o pino)</span></label>
             <div id="mapPin"></div>
-            <div class="form-hint" id="coordInfo">Nenhum pino fixado. Use a busca acima ou clique no mapa para posicionar o pino.</div>
+            <div class="form-hint" id="coordInfo">Nenhum pino fixado ainda. Para áreas rurais sem CEP, use o mapa.</div>
           </div>
 
           <!-- KMZ/KML -->
