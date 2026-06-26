@@ -136,9 +136,13 @@
 
           <!-- Mapa pin -->
           <div class="form-group">
-            <label>📌 Localização no mapa <span style="font-weight:normal;color:var(--text-muted)">(clique para fixar o pino)</span></label>
+            <label>📌 Localização no mapa</label>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <input type="text" id="buscaMapa" placeholder="Buscar endereço no mapa…" style="flex:1">
+              <button type="button" id="btnBuscaMapa" class="btn btn-secondary" style="white-space:nowrap">🔍 Buscar</button>
+            </div>
             <div id="mapPin"></div>
-            <div class="form-hint" id="coordInfo">Nenhum pino fixado ainda. Para áreas rurais sem CEP, use o mapa.</div>
+            <div class="form-hint" id="coordInfo">Nenhum pino fixado. Use a busca acima ou clique no mapa para posicionar o pino.</div>
           </div>
 
           <!-- KMZ/KML -->
@@ -263,6 +267,34 @@
       if (a.state_code)  document.getElementById('estado').value    = a.state_code.replace('BR-','');
     } catch {}
   }
+
+  // ── Busca livre no mapa ──────────────────────────
+  async function buscarNoMapa(termo) {
+    if (!termo.trim()) return;
+    const municipio = document.getElementById('municipio').value;
+    const uf        = document.getElementById('estado').value;
+    const q = [termo, municipio, uf, 'Brasil'].filter(Boolean).join(', ');
+    const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1`);
+    const data = await res.json();
+    if (!data.length) { alert('Endereço não encontrado. Tente ser mais específico ou clique no mapa.'); return; }
+    const best = data[0];
+    const latlng = L.latLng(parseFloat(best.lat), parseFloat(best.lon));
+    map.setView(latlng, 18);
+    fixarPino(latlng);
+    // Preenche campos se estiverem vazios
+    const a = best.address || {};
+    if (!document.getElementById('rua').value && a.road)       document.getElementById('rua').value = a.road;
+    if (!document.getElementById('bairro').value && (a.suburb || a.neighbourhood)) document.getElementById('bairro').value = a.suburb || a.neighbourhood;
+    if (!document.getElementById('municipio').value && (a.city || a.town)) document.getElementById('municipio').value = a.city || a.town;
+    if (!document.getElementById('estado').value && a.state_code) document.getElementById('estado').value = a.state_code.replace('BR-','');
+  }
+
+  document.getElementById('btnBuscaMapa').addEventListener('click', () => {
+    buscarNoMapa(document.getElementById('buscaMapa').value);
+  });
+  document.getElementById('buscaMapa').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); buscarNoMapa(e.target.value); }
+  });
 
   function fixarPino(latlng) {
     lat = latlng.lat.toFixed(6);
