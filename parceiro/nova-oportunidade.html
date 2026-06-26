@@ -72,11 +72,13 @@
           <div class="form-row">
             <div class="form-group" id="grupo-area-total">
               <label class="required" id="label-area">Área (m²)</label>
-              <input type="number" id="area" placeholder="Ex: 5000" min="0" step="any">
+              <input type="text" id="areaDisplay" placeholder="Ex: 5.000,00" inputmode="numeric" autocomplete="off">
+              <input type="hidden" id="area">
             </div>
             <div class="form-group" id="grupo-area-privativa" style="display:none">
               <label>Área privativa (m²)</label>
-              <input type="number" id="areaPrivativa" placeholder="Ex: 120" min="0" step="any">
+              <input type="text" id="areaPrivativaDisplay" placeholder="Ex: 120,00" inputmode="numeric" autocomplete="off">
+              <input type="hidden" id="areaPrivativa">
               <div class="form-hint">Ao menos uma das áreas é obrigatória</div>
             </div>
             <div class="form-group">
@@ -320,13 +322,21 @@
     });
   });
 
-  // ── Máscara BRL para valor ───────────────────────
-  document.getElementById('valorDisplay').addEventListener('input', function() {
-    const raw = this.value.replace(/\D/g, '');
-    const num = parseFloat(raw) / 100;
-    document.getElementById('valor').value = num || '';
-    this.value = raw ? num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
-  });
+  // ── Máscara numérica genérica ────────────────────
+  function mascaraNumero(displayId, hiddenId, prefixo) {
+    document.getElementById(displayId).addEventListener('input', function() {
+      const raw = this.value.replace(/\D/g, '');
+      const num = parseFloat(raw) / 100;
+      document.getElementById(hiddenId).value = num || '';
+      if (!raw) { this.value = ''; return; }
+      this.value = prefixo
+        ? num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+        : num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    });
+  }
+  mascaraNumero('valorDisplay',        'valor',        true);
+  mascaraNumero('areaDisplay',         'area',         false);
+  mascaraNumero('areaPrivativaDisplay','areaPrivativa',false);
 
   // ── Área privativa para tipos com unidade ────────
   const TIPOS_COM_PRIVATIVA = ['Apartamento','Casa residencial','Casa comercial','Sala comercial','Loja'];
