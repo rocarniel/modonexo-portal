@@ -104,6 +104,14 @@
             <div id="parceiroInfo" style="font-size:14px"></div>
           </div>
 
+          <!-- Mensagem direta ao parceiro -->
+          <div class="card">
+            <div class="card-header"><span class="card-title">✉️ Mensagem ao parceiro</span></div>
+            <textarea id="msgParceiro" rows="4" placeholder="Ex: Preciso de mais fotos da fachada. Pode enviar?" style="width:100%;resize:vertical;font-size:13px"></textarea>
+            <button class="btn btn-navy btn-block" style="margin-top:8px;width:100%" onclick="enviarMsgParceiro()">Enviar por e-mail</button>
+            <div id="msgFeedback" style="display:none;margin-top:8px;font-size:13px"></div>
+          </div>
+
           <!-- Comissão -->
           <div class="card" id="cardComissao" style="display:none">
             <div class="card-header"><span class="card-title">💰 Comissão</span></div>
@@ -323,6 +331,39 @@
     document.getElementById('lightbox').classList.remove('hidden');
   }
   function fecharLightbox() { document.getElementById('lightbox').classList.add('hidden'); }
+
+  async function enviarMsgParceiro() {
+    const msg = document.getElementById('msgParceiro').value.trim();
+    if (!msg) { showToast('Digite uma mensagem antes de enviar.', 'error'); return; }
+    const f   = opData?.fields || {};
+    const emailParceiro = f['E-mail'];
+    if (!emailParceiro) { showToast('Parceiro sem e-mail cadastrado.', 'error'); return; }
+    const fb  = document.getElementById('msgFeedback');
+    fb.style.display = 'none';
+    try {
+      const token = await getIdToken();
+      const resp  = await fetch(CONFIG.workerUrl + '/mensagem/parceiro', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({
+          emailParceiro,
+          nomeParceiro:   f['Nome'] || 'Parceiro',
+          tituloOp:       f['Título'] || 'Oportunidade',
+          mensagem:       msg,
+        }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      document.getElementById('msgParceiro').value = '';
+      fb.textContent    = '✅ Mensagem enviada com sucesso!';
+      fb.style.color    = 'var(--success)';
+      fb.style.display  = 'block';
+      setTimeout(() => fb.style.display = 'none', 4000);
+    } catch (err) {
+      fb.textContent   = '❌ Erro: ' + err.message;
+      fb.style.color   = 'var(--danger)';
+      fb.style.display = 'block';
+    }
+  }
 </script>
 </body>
 </html>
