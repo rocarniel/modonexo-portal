@@ -171,7 +171,7 @@ async function sendEmail(env, { to, subject, html }) {
   }
 }
 
-// ── Criar usuário no Firebase ─────────────────────
+// ── Criar usuário no Firebase (ignora "já existe") ──
 async function criarUsuarioFirebase(env, email, senha) {
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${env.FIREBASE_API_KEY}`,
@@ -181,25 +181,95 @@ async function criarUsuarioFirebase(env, email, senha) {
       body: JSON.stringify({ email, password: senha, returnSecureToken: false }),
     }
   );
+  const data = await res.json();
+  // EMAIL_EXISTS não é erro — usuário já foi criado antes
+  if (!res.ok && data?.error?.message !== "EMAIL_EXISTS") {
+    console.error("Firebase signUp error:", data?.error?.message);
+  }
+  return true;
+}
+
+// ── Enviar link de redefinição de senha (Firebase) ──
+async function enviarResetSenha(env, email) {
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${env.FIREBASE_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestType: "PASSWORD_RESET", email }),
+    }
+  );
+  if (!res.ok) {
+    const d = await res.json();
+    console.error("Firebase resetSenha error:", d?.error?.message);
+  }
   return res.ok;
 }
 
-// ── Renovar webhooks Airtable ─────────────────────
-const WEBHOOKS = [
-  "ach7DkgzzJEvs2gxa", // parceiros
-  "achAVwGhSXSiDTUhJ", // oportunidades
-];
+// ── Webhooks Airtable ─────────────────────────────
+// IDs são atualizados dinamicamente via /webhooks/recriar
+let WEBHOOKS = {
+  parceiros:     "achi9mucKX4tCMZZz",
+  oportunidades: "achCjaYV9Z3207Efo",
+};
+
+const WORKER_URL = "https://modonexo-worker.modonexo.workers.dev";
 
 async function renovarWebhooks(env) {
-  for (const id of WEBHOOKS) {
+  for (const id of Object.values(WEBHOOKS)) {
     await fetch(
-      `https://api.airtable.com/v0/bases/appt6mRYfyo5Aq6Db/webhooks/${id}/refresh`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` },
-      }
+      `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${id}/refresh`,
+      { method: "POST", headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
     );
   }
+}
+
+async function recriarWebhooks(env) {
+  const base = env.AIRTABLE_BASE;
+  const headers = {
+    Authorization: `Bearer ${env.AIRTABLE_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+  const secret = env.WEBHOOK_SECRET;
+
+  const criar = async (notificationUrl, tableId, especificacao) => {
+    const r = await fetch(`https://api.airtable.com/v0/bases/${base}/webhooks`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ notificationUrl, specification: especificacao }),
+    });
+    return r.json();
+  };
+
+  const wParceiros = await criar(
+    `${WORKER_URL}/webhook/parceiro?secret=${secret}`,
+    TBL.parceiros,
+    {
+      options: {
+        filters: {
+          fromSources: ["client", "publicApi"],
+          dataTypes: ["tableData"],
+          recordChangeScope: TBL.parceiros,
+        },
+      },
+    }
+  );
+
+  const wOportunidades = await criar(
+    `${WORKER_URL}/webhook/oportunidade?secret=${secret}`,
+    TBL.oportunidades,
+    {
+      options: {
+        filters: {
+          fromSources: ["client", "publicApi"],
+          dataTypes: ["tableData"],
+          recordChangeScope: TBL.oportunidades,
+        },
+      },
+    }
+  );
+
+  return { parceiros: wParceiros, oportunidades: wOportunidades };
 }
 
 // ── ROTEADOR ──────────────────────────────────────
@@ -225,15 +295,16 @@ export default {
       if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
 
       await request.json(); // consumir body
-      const webhookId = "ach7DkgzzJEvs2gxa";
+      const webhookId = WEBHOOKS.parceiros;
       const payloadRes = await fetch(
-        `https://api.airtable.com/v0/bases/appt6mRYfyo5Aq6Db/webhooks/${webhookId}/payloads`,
+        `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${webhookId}/payloads`,
         { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
       );
       const payloadData = await payloadRes.json();
-      const changedRecords = [...new Set(payloadData?.payloads?.flatMap(p =>
-        Object.keys(p.changedTablesById?.tblQSJNfoSTabmt3q?.changedRecordsById || {})
-      ) || [])];
+      const changedRecords = [...new Set(payloadData?.payloads?.flatMap(p => [
+        ...Object.keys(p.changedTablesById?.tblQSJNfoSTabmt3q?.createdRecordsById || {}),
+        ...Object.keys(p.changedTablesById?.tblQSJNfoSTabmt3q?.changedRecordsById || {}),
+      ]) || [])];
 
       for (const recordId of changedRecords) {
         const rec    = await airtable(env, "GET", TBL.parceiros, recordId);
@@ -244,23 +315,36 @@ export default {
         const creci  = fields["CRECI"] || "";
 
         if (status === "Pendente") {
-          const urlAprovar = `https://modonexo-worker.modonexo.workers.dev/aprovar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
+          const urlAprovar  = `https://modonexo-worker.modonexo.workers.dev/aprovar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
           const urlRejeitar = `https://modonexo-worker.modonexo.workers.dev/rejeitar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
+          const creciNumero = creci.replace(/\D/g, "");
+          const urlCreci    = `https://www.creci-sc.gov.br/corretor/consultar?creci=${creciNumero}`;
           await sendEmail(env, {
             to: "modogestaonexo@gmail.com",
             subject: "Novo parceiro aguardando aprovação — Portal MODO",
             html: `
-              <div style="font-family:sans-serif;max-width:520px;margin:0 auto">
-                <h2 style="color:#1a1a2e">Novo parceiro cadastrado</h2>
-                <ul>
-                  <li><strong>Nome:</strong> ${nome}</li>
-                  <li><strong>E-mail:</strong> ${email}</li>
-                  <li><strong>CRECI:</strong> ${creci}</li>
-                </ul>
-                <div style="margin-top:24px;display:flex;gap:12px">
-                  <a href="${urlAprovar}" style="background:#16a34a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">✅ Aprovar</a>
-                  &nbsp;&nbsp;
-                  <a href="${urlRejeitar}" style="background:#dc2626;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">❌ Rejeitar</a>
+              <div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+                <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
+                  <h2 style="color:#fff;margin:0;font-size:18px">Novo parceiro cadastrado</h2>
+                </div>
+                <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+                  <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+                    <tr><td style="padding:8px 0;color:#64748b;width:90px">Nome</td><td style="padding:8px 0;font-weight:600">${nome}</td></tr>
+                    <tr><td style="padding:8px 0;color:#64748b">E-mail</td><td style="padding:8px 0">${email}</td></tr>
+                    <tr><td style="padding:8px 0;color:#64748b">WhatsApp</td><td style="padding:8px 0">${fields["WhatsApp"] || "—"}</td></tr>
+                    <tr>
+                      <td style="padding:8px 0;color:#64748b">CRECI</td>
+                      <td style="padding:8px 0">
+                        <strong>${creci}</strong>
+                        ${creciNumero ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no CRECI-SC</a>` : ""}
+                      </td>
+                    </tr>
+                  </table>
+                  <div style="display:flex;gap:12px;margin-top:8px">
+                    <a href="${urlAprovar}" style="background:#16a34a;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px">✅ Aprovar</a>
+                    &nbsp;&nbsp;
+                    <a href="${urlRejeitar}" style="background:#dc2626;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px">❌ Rejeitar</a>
+                  </div>
                 </div>
               </div>`,
           });
@@ -280,9 +364,9 @@ export default {
       if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
 
       await request.json(); // consumir body
-      const webhookId = "achAVwGhSXSiDTUhJ";
+      const webhookId = WEBHOOKS.oportunidades;
       const payloadRes = await fetch(
-        `https://api.airtable.com/v0/bases/appt6mRYfyo5Aq6Db/webhooks/${webhookId}/payloads`,
+        `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${webhookId}/payloads`,
         { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
       );
       const payloadData = await payloadRes.json();
@@ -338,12 +422,58 @@ export default {
       const nome  = rec.fields?.["Nome Completo"] || "";
       const email = rec.fields?.["E-Mail"] || "";
 
-      if (email) await criarUsuarioFirebase(env, email, "Modo@2030");
+      if (email) {
+        await criarUsuarioFirebase(env, email, "Modo@2030");
+        await enviarResetSenha(env, email);
+
+        // Email de boas-vindas ao parceiro
+        const primeiroNome = nome.split(" ")[0];
+        await sendEmail(env, {
+          to: email,
+          subject: "Bem-vindo ao Portal MODOnexo! Seu acesso foi aprovado ✅",
+          html: `
+            <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a1a2e">
+              <div style="background:#1a1a2e;padding:24px 32px;border-radius:12px 12px 0 0;text-align:center">
+                <h1 style="color:#fff;margin:0;font-size:22px">Portal MODOnexo</h1>
+                <p style="color:#94a3b8;margin:6px 0 0">Oportunidades imobiliárias exclusivas</p>
+              </div>
+              <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">
+                <h2 style="color:#16a34a;margin-top:0">Olá, ${primeiroNome}! Seja bem-vindo 👋</h2>
+                <p>Seu cadastro foi <strong>aprovado</strong> e você já faz parte da rede de parceiros da <strong>MODO Planejamento Imobiliário</strong>.</p>
+                <p>Através do portal você terá acesso a:</p>
+                <ul style="color:#475569;line-height:2">
+                  <li>📋 Oportunidades imobiliárias exclusivas</li>
+                  <li>📤 Cadastro de novos imóveis e captações</li>
+                  <li>🔗 Compartilhamento personalizado com clientes</li>
+                  <li>📊 Acompanhamento do status das suas oportunidades</li>
+                </ul>
+                <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+                <p style="margin-bottom:8px"><strong>Seu acesso:</strong></p>
+                <ul style="color:#475569;line-height:1.8;margin-bottom:24px">
+                  <li><strong>Portal:</strong> <a href="https://modonexo.com.br" style="color:#1a1a2e">modonexo.com.br</a></li>
+                  <li><strong>E-mail:</strong> ${email}</li>
+                </ul>
+                <p style="color:#64748b;font-size:14px">Para definir sua senha de acesso, clique no botão abaixo. O link é válido por 1 hora.</p>
+                <div style="text-align:center;margin:24px 0">
+                  <a href="https://modonexo.com.br/index.html?resetSenha=1"
+                     style="background:#1a1a2e;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">
+                    🔑 Definir minha senha
+                  </a>
+                </div>
+                <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
+                  MODO Planejamento Imobiliário · Portal MODOnexo<br>
+                  Em caso de dúvidas, responda este e-mail.
+                </p>
+              </div>
+            </div>`,
+        });
+      }
 
       return new Response(`
         <html><body style="font-family:sans-serif;text-align:center;padding:60px">
           <h2 style="color:#16a34a">✅ Parceiro aprovado!</h2>
           <p><strong>${nome}</strong> agora tem acesso ao portal MODOnexo.</p>
+          <p style="color:#666">Um e-mail de boas-vindas foi enviado para <strong>${email}</strong>.</p>
           <p style="color:#666">Você pode fechar esta aba.</p>
         </body></html>`, {
         headers: { "Content-Type": "text/html;charset=UTF-8" },
@@ -372,6 +502,58 @@ export default {
 
     // ── Rotas públicas (sem auth) ──────────────────
 
+    // Diagnóstico / renovação manual de webhooks
+    if (path === "/webhooks/listar" && method === "GET") {
+      const secret = url.searchParams.get("secret");
+      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const r = await fetch(
+        `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks`,
+        { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
+      );
+      const d = await r.json();
+      return corsResponse(d);
+    }
+
+    if (path === "/webhooks/status" && method === "GET") {
+      const secret = url.searchParams.get("secret");
+      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const results = [];
+      for (const [nome, id] of Object.entries(WEBHOOKS)) {
+        const r = await fetch(
+          `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${id}`,
+          { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
+        );
+        const d = await r.json();
+        results.push({ nome, id, expiresAt: d.expirationTime, isEnabled: d.isHookEnabled, error: d.error });
+      }
+      return corsResponse({ webhooks: results });
+    }
+
+    if (path === "/webhooks/renovar" && method === "GET") {
+      const secret = url.searchParams.get("secret");
+      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      await renovarWebhooks(env);
+      return corsResponse({ ok: true, renovadoEm: new Date().toISOString() });
+    }
+
+    if (path === "/webhooks/recriar" && method === "GET") {
+      const secret = url.searchParams.get("secret");
+      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const resultado = await recriarWebhooks(env);
+      return corsResponse(resultado);
+    }
+
+    if (path === "/webhooks/deletar" && method === "GET") {
+      const secret = url.searchParams.get("secret");
+      const id     = url.searchParams.get("id");
+      if (secret !== env.WEBHOOK_SECRET || !id) return errorResponse("Não autorizado", 401);
+      const r = await fetch(
+        `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${id}`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
+      );
+      return corsResponse({ ok: r.ok, status: r.status });
+    }
+
     // Cadastro público de parceiro
     if (path === "/parceiros/publico" && method === "POST") {
       const body = await request.json();
@@ -386,6 +568,36 @@ export default {
           "Data de cadastro": new Date().toISOString().split("T")[0],
         },
       });
+      // Email de confirmação para o solicitante
+      const primeiroNome = (body.nome || "").split(" ")[0];
+      await sendEmail(env, {
+        to: body.email,
+        subject: "Recebemos seu cadastro — Portal MODOnexo",
+        html: `
+          <div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+            <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0;text-align:center">
+              <h1 style="color:#fff;margin:0;font-size:20px">Portal MODOnexo</h1>
+            </div>
+            <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+              <h2 style="color:#1a1a2e;margin-top:0">Olá, ${primeiroNome}!</h2>
+              <p>Recebemos seu pedido de cadastro como parceiro da <strong>MODO Planejamento Imobiliário</strong>.</p>
+              <p>Nossa equipe irá analisar suas informações e você receberá um e-mail de confirmação em breve com as instruções de acesso ao portal.</p>
+              <div style="background:#f8fafc;border-left:4px solid #1a1a2e;padding:16px 20px;border-radius:0 8px 8px 0;margin:24px 0">
+                <p style="margin:0;font-size:14px;color:#475569">
+                  <strong>Dados enviados:</strong><br>
+                  Nome: ${body.nome}<br>
+                  E-mail: ${body.email}<br>
+                  CRECI: ${body.creci || "—"}
+                </p>
+              </div>
+              <p style="color:#64748b;font-size:14px">Se você não solicitou este cadastro, desconsidere este e-mail.</p>
+              <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
+                MODO Planejamento Imobiliário · Portal MODOnexo
+              </p>
+            </div>
+          </div>`,
+      });
+
       return corsResponse({ id: record.id });
     }
 
