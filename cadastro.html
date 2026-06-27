@@ -90,21 +90,16 @@
     this.value = v;
   });
 
-  // Validação de formato CRECI ao sair do campo
+  // Validação mínima de CRECI — só exige ao menos 4 dígitos
   document.getElementById('creci').addEventListener('blur', function() {
     const v = this.value.trim().toUpperCase();
     this.value = v;
     const hint = document.getElementById('hintCreci');
     if (!v) { hint.style.display='none'; return; }
     if (v === 'ISENTO') { hint.style.display='none'; return; }
-    // Aceita formatos: 12345-F, 12345F, 12345-PJ, 12345PJ, só números
-    const ok = /^\d{3,8}[-]?([A-Z]|PJ)?$/.test(v);
-    if (!ok) {
-      hint.textContent = 'Formato inválido. Use: 12345-F ou 12345-PJ';
-      hint.style.display = 'block';
-    } else {
-      hint.style.display = 'none';
-    }
+    if (/\d{4,}/.test(v)) { hint.style.display='none'; return; }
+    hint.textContent = 'Informe um número de CRECI válido (ex: 54606-F).';
+    hint.style.display = 'block';
   });
 
     document.getElementById("formCadastro").addEventListener("submit", async (e) => {
@@ -115,7 +110,7 @@
 
       // Validar CRECI antes de enviar
       const creciVal = document.getElementById('creci').value.trim().toUpperCase();
-      const creciOk  = creciVal === 'ISENTO' || /^\d{3,8}[-]?([A-Z]|PJ)?$/.test(creciVal);
+      const creciOk  = creciVal === 'ISENTO' || /\d{4,}/.test(creciVal);
       if (!creciOk) {
         document.getElementById('hintCreci').textContent = 'Formato inválido. Use: 12345-F ou 12345-PJ';
         document.getElementById('hintCreci').style.display = 'block';
