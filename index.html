@@ -144,7 +144,10 @@
     }
 
     // Abre modal automaticamente se vier do email de boas-vindas
-    if (new URLSearchParams(window.location.search).get("resetSenha") === "1") {
+    const _params = new URLSearchParams(window.location.search);
+    if (_params.get("resetSenha") === "1") {
+      const emailParam = _params.get("email");
+      if (emailParam) document.getElementById("emailReset").value = decodeURIComponent(emailParam);
       abrirModalSenha();
     }
 
