@@ -498,7 +498,7 @@
   window.removeDoc = (i) => { docsFiles.splice(i, 1); renderDocList(); };
 
   // ── KMZ/KML upload ──────────────────────────────
-  const TIPOS_KMZ = ['Terreno','Galpão','Rural','Loteamento','Incorporação'];
+  const TIPOS_KMZ = ['Terreno/Lote urbano','Área para loteamento','Gleba rural'];
   document.getElementById('tipo').addEventListener('change', function() {
     document.getElementById('grupo-kmz').style.display = TIPOS_KMZ.includes(this.value) ? '' : 'none';
   });
