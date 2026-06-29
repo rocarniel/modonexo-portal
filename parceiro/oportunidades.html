@@ -128,7 +128,7 @@
           <span style="font-size:12px;color:var(--text-muted)">${o.fields['Tipo de imóvel'] || ''}</span>
         </td>
         <td>${o.fields['Município'] || '—'}<br><span style="font-size:12px;color:var(--text-muted)">${o.fields['Estado'] || ''}</span></td>
-        <td>${o.fields['Área (m²)'] ? o.fields['Área (m²)'].toLocaleString('pt-BR') + ' m²' : '—'}</td>
+        <td>${(o.fields['Área total (m²)'] ?? o.fields['Área (m²)']) != null ? (o.fields['Área total (m²)'] ?? o.fields['Área (m²)']).toLocaleString('pt-BR') + ' m²' : '—'}</td>
         <td>${formatMoeda(o.fields['Valor pretendido (R$)'])}</td>
         <td>${badgeStatus(o.fields['Status'])}</td>
         <td>${formatData(o.fields['Data de entrada'])}</td>
