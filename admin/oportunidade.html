@@ -375,7 +375,14 @@
     const card = document.getElementById('cardHistorico');
     const lista = document.getElementById('listaHistorico');
     card.style.display = '';
-    const truncar = (s, n=60) => s && s.length > n ? s.slice(0, n) + '…' : s;
+    const truncar = (s, n=50) => {
+      if (!s) return '—';
+      if (s.startsWith('http') && s.includes('/')) {
+        const nome = decodeURIComponent(s.split('/').pop().split('?')[0]);
+        return nome.length > n ? nome.slice(0, n) + '…' : nome;
+      }
+      return s.length > n ? s.slice(0, n) + '…' : s;
+    };
     lista.innerHTML = [...log].reverse().map(e => {
       const dt   = new Date(e.data).toLocaleString('pt-BR');
       const quem = e.admin
