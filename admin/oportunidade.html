@@ -250,8 +250,9 @@
       // Docs
       if (f['_documentos']?.length) {
         document.getElementById('cardDocs').style.display = '';
+        _docsIndex = f['_documentos'];
         document.getElementById('listaDocs').innerHTML = '<div class="doc-grid">' +
-          f['_documentos'].map(d => docCard(d)).join('') + '</div>';
+          f['_documentos'].map((d, i) => docCard(d, i)).join('') + '</div>';
       }
 
       // Vídeo
@@ -374,17 +375,24 @@
     const card = document.getElementById('cardHistorico');
     const lista = document.getElementById('listaHistorico');
     card.style.display = '';
+    const truncar = (s, n=60) => s && s.length > n ? s.slice(0, n) + '…' : s;
     lista.innerHTML = [...log].reverse().map(e => {
       const dt   = new Date(e.data).toLocaleString('pt-BR');
       const quem = e.admin
         ? `<span style="color:var(--navy);font-weight:600">Admin — ${e.nome || e.email}</span>`
-        : `<span>Parceiro — ${e.nome || e.email}</span>`;
+        : `<span style="font-weight:600">Parceiro — ${e.nome || e.email}</span>`;
       const itens = (e.alteracoes || []).map(a =>
-        `<div style="margin-left:12px;color:var(--text-muted)">• <strong>${a.campo}:</strong> ${a.de} → ${a.para}</div>`
+        `<div style="margin-top:4px;padding:4px 8px;background:var(--bg);border-radius:6px;font-size:12px">
+          <span style="color:var(--text-muted)">${a.campo}</span><br>
+          <span style="color:var(--danger);text-decoration:line-through">${truncar(a.de)}</span>
+          <span style="margin:0 4px;color:var(--text-muted)">→</span>
+          <span style="color:var(--success)">${truncar(a.para)}</span>
+        </div>`
       ).join('');
-      return `<div style="border-left:3px solid var(--border);padding:8px 12px;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          ${quem}<span style="color:var(--text-muted)">${dt}</span>
+      return `<div style="border-left:3px solid var(--gold);padding:6px 10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px">
+          ${quem}
+          <span style="font-size:11px;color:var(--text-muted)">${dt}</span>
         </div>${itens}
       </div>`;
     }).join('');
@@ -413,8 +421,10 @@
     return `<span class="doc-icon">${icons[ext] || '📎'}</span>`;
   }
 
-  function docCard(d) {
-    return `<div class="doc-card" onclick="abrirDocViewer(${JSON.stringify(d)})">
+  let _docsIndex = [];
+
+  function docCard(d, idx) {
+    return `<div class="doc-card" onclick="_docsIndex[${idx}]&&abrirDocViewer(_docsIndex[${idx}])">
       <div class="doc-thumb">${docThumbHtml(d)}</div>
       <div class="doc-name">${d.nome}</div>
     </div>`;
