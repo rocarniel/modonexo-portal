@@ -280,7 +280,7 @@
         municipio: f['Município'], estado: estadoSigla, cep: f['CEP'],
         videoLink: f['Link de vídeo'],
         // Strip "Finalidades: X\n\n" prefix adicionado automaticamente pelo worker
-        obs: (f['Observações'] || '').replace(/^Finalidades:.*?\n\n/s, '').trim(),
+        obs: (f['Observações'] || '').replace(/^Finalidades:.*?(\n\n|$)/s, '').trim(),
         comissao:  f['Comissão (%)'] != null ? (f['Comissão (%)'] * 100).toString() : '',
         detComissao: f['Detalhes da comissão'],
       };
