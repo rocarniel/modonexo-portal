@@ -86,7 +86,7 @@
     }
     tbody.innerHTML = ops.map(o => {
       const f = o.fields;
-      return `<tr>
+      return `<tr style="cursor:pointer" onclick="location.href='oportunidade.html?id=${o.id}'">
         <td><strong>${f['Título'] || '—'}</strong></td>
         <td style="font-size:13px">${(f['Nome Completo (from Parceiros)'] || ['—'])[0]}</td>
         <td>${f['Tipo de imóvel'] || '—'}</td>

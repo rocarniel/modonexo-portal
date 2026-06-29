@@ -122,7 +122,7 @@
       return;
     }
     tbody.innerHTML = ops.map(o => `
-      <tr>
+      <tr style="cursor:pointer" onclick="if(event.target.closest('button,a'))return;location.href='oportunidade.html?id=${o.id}'">
         <td>
           <strong>${o.fields['Título'] || '—'}</strong><br>
           <span style="font-size:12px;color:var(--text-muted)">${o.fields['Tipo de imóvel'] || ''}</span>
