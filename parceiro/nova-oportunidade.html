@@ -296,11 +296,17 @@
       document.getElementById('tipo').dispatchEvent(new Event('change'));
 
       // Finalidade
-      const finalidade = f['Tipo de negócio'];
-      if (finalidade) {
-        const cb = document.querySelector(`.finalidade-cb[value="${finalidade}"]`);
+      // Finalidades: extrai do prefixo "Finalidades: X, Y\n\n" do campo Observações
+      document.querySelectorAll('.finalidade-cb').forEach(cb => cb.checked = false);
+      const obsRaw = f['Observações'] || '';
+      const matchFin = obsRaw.match(/^Finalidades:\s*(.+?)\n/);
+      const finalidades = matchFin
+        ? matchFin[1].split(',').map(s => s.trim())
+        : (f['Tipo de negócio'] ? [f['Tipo de negócio']] : []);
+      finalidades.forEach(val => {
+        const cb = document.querySelector(`.finalidade-cb[value="${val}"]`);
         if (cb) cb.checked = true;
-      }
+      });
 
       // Área e Valor (hidden + display)
       if (f['Área total (m²)'] != null) {
