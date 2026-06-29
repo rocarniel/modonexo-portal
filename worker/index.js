@@ -1037,11 +1037,26 @@ export default {
     // ── Leads ──────────────────────────────────────
 
     if (path === "/leads" && method === "GET") {
-      if (!user.admin) return errorResponse("Acesso negado", 403);
-      const data = await airtable(env, "GET", TBL.leads, "", {
-        sort: [{ field: "Data e hora do acesso", direction: "desc" }],
-      });
-      return corsResponse(data);
+      const opId = url.searchParams.get("opId");
+      if (user.admin) {
+        // Admin: todos os leads, ou filtrado por oportunidade
+        const params = { sort: [{ field: "Data e hora do acesso", direction: "desc" }] };
+        if (opId) params.filterByFormula = `{ID da oportunidade} = "${opId}"`;
+        const data = await airtable(env, "GET", TBL.leads, "", params);
+        return corsResponse(data);
+      } else {
+        // Parceiro: só leads de suas próprias oportunidades
+        if (!opId) return errorResponse("opId obrigatório", 400);
+        // Verifica que a oportunidade pertence a este parceiro
+        const op = await airtable(env, "GET", TBL.oportunidades, opId);
+        const emailOp = op.fields?.["E-mail do solicitante"] || "";
+        if (emailOp.toLowerCase() !== user.email.toLowerCase()) return errorResponse("Acesso negado", 403);
+        const data = await airtable(env, "GET", TBL.leads, "", {
+          filterByFormula: `{ID da oportunidade} = "${opId}"`,
+          sort: [{ field: "Data e hora do acesso", direction: "desc" }],
+        });
+        return corsResponse(data);
+      }
     }
 
     if (path === "/mensagem/parceiro" && method === "POST") {
