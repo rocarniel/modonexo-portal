@@ -264,46 +264,6 @@
     } catch {}
   }
 
-  // ── Busca livre no mapa ──────────────────────────
-  async function buscarNoMapa(termo) {
-    if (!termo.trim()) return;
-    const hint = document.getElementById('buscaMapaHint');
-    hint.textContent = 'Buscando…';
-    hint.style.color = '#666';
-    try {
-      // Photon — melhor cobertura de numeração que Nominatim no Brasil
-      const res  = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(termo)}&limit=5&lang=pt&bbox=-73.99,-33.75,-28.84,5.27`);
-      const data = await res.json();
-      const feat = data.features?.[0];
-      if (!feat) {
-        hint.textContent = 'Endereço não encontrado.';
-        hint.style.color = '#dc2626';
-        return;
-      }
-      hint.textContent = '';
-      const [lon, lat2] = feat.geometry.coordinates;
-      const latlng = L.latLng(lat2, lon);
-      map.setView(latlng, 18);
-      fixarPino(latlng);
-      // Preenche campos se estiverem vazios
-      const p = feat.properties || {};
-      if (!document.getElementById('rua').value && p.street)        document.getElementById('rua').value       = p.street;
-      if (!document.getElementById('bairro').value && p.district)   document.getElementById('bairro').value    = p.district;
-      if (!document.getElementById('municipio').value && p.city)    document.getElementById('municipio').value = p.city;
-      if (!document.getElementById('estado').value && p.state)      document.getElementById('estado').value    = p.state === 'Santa Catarina' ? 'SC' : p.state;
-    } catch {
-      hint.textContent = 'Erro na busca. Tente novamente.';
-      hint.style.color = '#dc2626';
-    }
-  }
-
-  document.getElementById('btnBuscaMapa').addEventListener('click', () => {
-    buscarNoMapa(document.getElementById('buscaMapa').value);
-  });
-  document.getElementById('buscaMapa').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); buscarNoMapa(e.target.value); }
-  });
-
   function fixarPino(latlng) {
     lat = latlng.lat.toFixed(6);
     lng = latlng.lng.toFixed(6);
@@ -450,16 +410,25 @@
   });
 
   // ── Máscara numérica genérica ────────────────────
+  function formatarNumero(num, prefixo) {
+    return prefixo
+      ? num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+      : num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
   function mascaraNumero(displayId, hiddenId, prefixo) {
     document.getElementById(displayId).addEventListener('input', function() {
       const raw = this.value.replace(/\D/g, '');
       const num = parseFloat(raw) / 100;
       document.getElementById(hiddenId).value = num || '';
       if (!raw) { this.value = ''; return; }
-      this.value = prefixo
-        ? num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-        : num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      this.value = formatarNumero(num, prefixo);
     });
+  }
+  function aplicarFormatacaoDisplay(displayId, hiddenId, prefixo) {
+    const hidden = document.getElementById(hiddenId);
+    const display = document.getElementById(displayId);
+    const num = parseFloat(hidden.value);
+    if (num) display.value = formatarNumero(num, prefixo);
   }
   mascaraNumero('valorDisplay',        'valor',        true);
   mascaraNumero('areaDisplay',         'area',         false);
@@ -579,8 +548,10 @@
       localStorage.removeItem('rascunho_oportunidade'); return;
     }
     CAMPOS_TEXTO.forEach(id => { const el = document.getElementById(id); if(el && dados[id]) el.value = dados[id]; });
-    CAMPOS_DISPLAY.forEach(id => { const el = document.getElementById(id); if(el && dados[id]) el.value = dados[id]; });
     CAMPOS_HIDDEN.forEach(id => { const el = document.getElementById(id); if(el && dados[id]) el.value = dados[id]; });
+    aplicarFormatacaoDisplay('valorDisplay',        'valor',        true);
+    aplicarFormatacaoDisplay('areaDisplay',         'area',         false);
+    aplicarFormatacaoDisplay('areaPrivativaDisplay','areaPrivativa',false);
     (dados.finalidades || []).forEach(v => {
       const cb = document.querySelector(`.finalidade-cb[value="${v}"]`);
       if (cb) cb.checked = true;
