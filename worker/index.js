@@ -192,22 +192,8 @@ async function criarUsuarioFirebase(env, email, senha) {
   return true;
 }
 
-// ── Enviar link de redefinição de senha (Firebase) ──
-async function enviarResetSenha(env, email) {
-  const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${env.FIREBASE_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestType: "PASSWORD_RESET", email }),
-    }
-  );
-  if (!res.ok) {
-    const d = await res.json();
-    console.error("Firebase resetSenha error:", d?.error?.message);
-  }
-  return res.ok;
-}
+// ── URLs de consulta CRECI por UF ────────────────────
+const URL_CONSULTA_CRECI = "https://imobisec.com.br/busca";
 
 // ── Webhooks Airtable ─────────────────────────────
 // IDs são atualizados dinamicamente via /webhooks/recriar
@@ -320,8 +306,7 @@ export default {
         if (status === "Pendente") {
           const urlAprovar  = `https://modonexo-worker.modonexo.workers.dev/aprovar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
           const urlRejeitar = `https://modonexo-worker.modonexo.workers.dev/rejeitar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
-          const creciNumero = creci.replace(/\D/g, "");
-          const urlCreci    = `https://www.creci-sc.gov.br/corretor/consultar?creci=${creciNumero}`;
+          const urlCreci = URL_CONSULTA_CRECI;
           await sendEmail(env, {
             to: "modogestaonexo@gmail.com",
             subject: "Novo parceiro aguardando aprovação — Portal MODO",
@@ -339,7 +324,7 @@ export default {
                       <td style="padding:8px 0;color:#64748b">CRECI</td>
                       <td style="padding:8px 0">
                         <strong>${creci}</strong>
-                        ${creciNumero ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no CRECI-SC</a>` : ""}
+                        ${creciNumero ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no IMOBISEC</a>` : ""}
                       </td>
                     </tr>
                   </table>
@@ -426,12 +411,12 @@ export default {
       const email = rec.fields?.["E-Mail"] || "";
 
       if (email) {
-        await criarUsuarioFirebase(env, email, "Modo@2030");
-        // Não enviamos o reset automaticamente — o link no email já leva direto ao modal preenchido
+        const creciNumero = (rec.fields?.["CRECI"] || "").replace(/\D/g, "") || "0000";
+        const senhaTemp = `user@${creciNumero}`;
+        await criarUsuarioFirebase(env, email, senhaTemp);
 
-        // Email de boas-vindas ao parceiro
+        const urlPortal = `https://modonexo.com.br`;
         const primeiroNome = nome.split(" ")[0];
-        const urlDefinirSenha = `https://modonexo.com.br/index.html?resetSenha=1&email=${encodeURIComponent(email)}`;
         await sendEmail(env, {
           to: email,
           subject: "Bem-vindo ao Portal MODOnexo! Seu acesso foi aprovado ✅",
@@ -443,29 +428,31 @@ export default {
               </div>
               <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">
                 <h2 style="color:#16a34a;margin-top:0">Olá, ${primeiroNome}! Seja bem-vindo 👋</h2>
-                <p>Seu cadastro foi <strong>aprovado</strong> e você já faz parte da rede de parceiros da <strong>MODO Planejamento Imobiliário</strong>.</p>
-                <p>Através do portal você terá acesso a:</p>
-                <ul style="color:#475569;line-height:2">
-                  <li>📋 Oportunidades imobiliárias exclusivas</li>
-                  <li>📤 Cadastro de novos imóveis e captações</li>
-                  <li>🔗 Compartilhamento personalizado com clientes</li>
-                  <li>📊 Acompanhamento do status das suas oportunidades</li>
-                </ul>
+                <p>Seu cadastro foi <strong>aprovado</strong> e você já faz parte da rede de parceiros da <strong>MODO - Planejamento e Gestão Imobiliária</strong>.</p>
+                <p>Através do portal você terá acesso a oportunidades imobiliárias exclusivas, captações, compartilhamento com clientes e muito mais.</p>
                 <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
-                <p style="margin-bottom:8px"><strong>Seu acesso:</strong></p>
-                <ul style="color:#475569;line-height:1.8;margin-bottom:24px">
-                  <li><strong>Portal:</strong> <a href="https://modonexo.com.br" style="color:#1a1a2e">modonexo.com.br</a></li>
-                  <li><strong>E-mail:</strong> ${email}</li>
-                </ul>
-                <p style="color:#64748b;font-size:14px">Clique no botão abaixo para criar sua senha. Você receberá um link de acesso imediatamente no seu e-mail.</p>
+                <p style="margin-bottom:16px;font-weight:600">Suas credenciais de acesso:</p>
+                <div style="background:#f8fafc;border-radius:10px;padding:20px 24px;margin-bottom:24px;border:1px solid #e2e8f0">
+                  <table style="width:100%;border-collapse:collapse">
+                    <tr>
+                      <td style="padding:8px 0;color:#64748b;font-size:14px;width:80px">E-mail</td>
+                      <td style="padding:8px 0;font-weight:600;font-size:14px">${email}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px 0;color:#64748b;font-size:14px">Senha</td>
+                      <td style="padding:8px 0;font-size:18px;font-weight:700;letter-spacing:2px;color:#1a1a2e">${senhaTemp}</td>
+                    </tr>
+                  </table>
+                </div>
+                <p style="color:#64748b;font-size:13px;margin-bottom:20px">Recomendamos alterar sua senha após o primeiro acesso. Use a opção "Esqueci minha senha" na tela de login.</p>
                 <div style="text-align:center;margin:24px 0">
-                  <a href="${urlDefinirSenha}"
-                     style="background:#1a1a2e;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">
-                    🔑 Definir minha senha
+                  <a href="${urlPortal}"
+                     style="background:#1a1a2e;color:#fff;padding:14px 40px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">
+                    Acessar o portal →
                   </a>
                 </div>
                 <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
-                  MODO Planejamento Imobiliário · Portal MODOnexo<br>
+                  MODO - Planejamento e Gestão Imobiliária · Portal MODOnexo<br>
                   Em caso de dúvidas, responda este e-mail.
                 </p>
               </div>
@@ -562,11 +549,18 @@ export default {
     if (path === "/parceiros/publico" && method === "POST") {
       const body = await request.json();
       if (!body.nome || !body.email) return errorResponse("Nome e e-mail obrigatórios");
+      const uf         = (body.creciUf   || "").toUpperCase();
+      const tipo       = (body.creciTipo || "").toUpperCase(); // PF ou PJ
+      const creciLabel = [
+        uf   ? `CRECI-${uf}` : "",
+        body.creci || "",
+        tipo ? `(${tipo})` : "",
+      ].filter(Boolean).join(" ");
       const record = await airtable(env, "POST", TBL.parceiros, "", {}, {
         fields: {
           "Nome Completo":    body.nome,
           "E-Mail":           body.email,
-          "CRECI":            body.creci || "",
+          "CRECI":            creciLabel,
           "WhatsApp":         body.whatsapp || "",
           "Status":           "Pendente",
           "Data de cadastro": new Date().toISOString().split("T")[0],
@@ -584,19 +578,19 @@ export default {
             </div>
             <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
               <h2 style="color:#1a1a2e;margin-top:0">Olá, ${primeiroNome}!</h2>
-              <p>Recebemos seu pedido de cadastro como parceiro da <strong>MODO Planejamento Imobiliário</strong>.</p>
+              <p>Recebemos seu pedido de cadastro como parceiro da <strong>MODO - Planejamento e Gestão Imobiliária</strong>.</p>
               <p>Nossa equipe irá analisar suas informações e você receberá um e-mail de confirmação em breve com as instruções de acesso ao portal.</p>
               <div style="background:#f8fafc;border-left:4px solid #1a1a2e;padding:16px 20px;border-radius:0 8px 8px 0;margin:24px 0">
                 <p style="margin:0;font-size:14px;color:#475569">
                   <strong>Dados enviados:</strong><br>
                   Nome: ${body.nome}<br>
                   E-mail: ${body.email}<br>
-                  CRECI: ${body.creci || "—"}
+                  CRECI: ${creciLabel || "—"}
                 </p>
               </div>
               <p style="color:#64748b;font-size:14px">Se você não solicitou este cadastro, desconsidere este e-mail.</p>
               <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
-                MODO Planejamento Imobiliário · Portal MODOnexo
+                MODO - Planejamento e Gestão Imobiliária · Portal MODOnexo
               </p>
             </div>
           </div>`,
@@ -606,8 +600,7 @@ export default {
       const recordId   = record.id;
       const urlAprovar  = `${WORKER_URL}/aprovar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
       const urlRejeitar = `${WORKER_URL}/rejeitar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
-      const creciNumero = (body.creci || "").replace(/\D/g, "");
-      const urlCreci    = creciNumero ? `https://www.creci-sc.gov.br/corretor/consultar?creci=${creciNumero}` : null;
+      const urlCreci = URL_CONSULTA_CRECI;
       await sendEmail(env, {
         to: "modogestaonexo@gmail.com",
         subject: "Novo parceiro aguardando aprovação — Portal MODO",
@@ -624,8 +617,8 @@ export default {
                 <tr>
                   <td style="padding:8px 0;color:#64748b">CRECI</td>
                   <td style="padding:8px 0">
-                    <strong>${body.creci || "—"}</strong>
-                    ${urlCreci ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no CRECI-SC</a>` : ""}
+                    <strong>${creciLabel || "—"}</strong>
+                    ${urlCreci ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no IMOBISEC</a>` : ""}
                   </td>
                 </tr>
               </table>
