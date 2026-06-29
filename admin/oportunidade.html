@@ -104,6 +104,12 @@
             <div class="card-header"><span class="card-title">📝 Observações</span></div>
             <p id="obsTexto" style="font-size:14px;color:var(--text);line-height:1.6"></p>
           </div>
+
+          <!-- Histórico -->
+          <div class="card" id="cardHistorico" style="display:none">
+            <div class="card-header"><span class="card-title">🕓 Histórico de alterações</span></div>
+            <div id="listaHistorico" style="font-size:13px"></div>
+          </div>
         </div>
 
         <!-- Coluna lateral -->
@@ -297,6 +303,7 @@
         mostrarLink(f['Token de compartilhamento']);
       }
       carregarLeads(id);
+      renderHistorico(f['Histórico (JSON)']);
 
     } catch (err) {
       showToast('Erro ao carregar: ' + err.message, 'error');
@@ -357,6 +364,30 @@
             🕐 ${l.fields['Data e hora do acesso'] ? new Date(l.fields['Data e hora do acesso']).toLocaleString('pt-BR') : '—'}
           </div>`).join('') + '</div>';
     } catch { /* silencioso */ }
+  }
+
+  function renderHistorico(json) {
+    if (!json) return;
+    let log = [];
+    try { log = JSON.parse(json); } catch { return; }
+    if (!log.length) return;
+    const card = document.getElementById('cardHistorico');
+    const lista = document.getElementById('listaHistorico');
+    card.style.display = '';
+    lista.innerHTML = [...log].reverse().map(e => {
+      const dt   = new Date(e.data).toLocaleString('pt-BR');
+      const quem = e.admin
+        ? `<span style="color:var(--navy);font-weight:600">Admin — ${e.nome || e.email}</span>`
+        : `<span>Parceiro — ${e.nome || e.email}</span>`;
+      const itens = (e.alteracoes || []).map(a =>
+        `<div style="margin-left:12px;color:var(--text-muted)">• <strong>${a.campo}:</strong> ${a.de} → ${a.para}</div>`
+      ).join('');
+      return `<div style="border-left:3px solid var(--border);padding:8px 12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          ${quem}<span style="color:var(--text-muted)">${dt}</span>
+        </div>${itens}
+      </div>`;
+    }).join('');
   }
 
   function abrirLightbox(url) {

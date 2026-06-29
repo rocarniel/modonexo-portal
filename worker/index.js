@@ -809,37 +809,49 @@ export default {
         return corsResponse(data);
       }
 
-      if (method === "PATCH" && user.admin) {
-        const body   = await request.json();
+      if (method === "PATCH") {
+        const body = await request.json();
+
+        // Parceiro só pode editar a própria oportunidade; admin pode editar qualquer uma
+        if (!user.admin) {
+          const atual = await airtable(env, "GET", TBL.oportunidades, id);
+          if (atual.fields["E-mail do solicitante"] !== user.email) {
+            return errorResponse("Acesso negado", 403);
+          }
+          // Parceiro não pode alterar status diretamente
+          delete body.status;
+          delete body.motivo;
+        }
+
         const campos = {};
-        // Atualização de status (pipeline)
-        if (body.status) campos["Status"]                      = body.status;
-        if (body.motivo) campos["Motivo (status negativo)"]    = body.motivo;
+        // Atualização de status (pipeline — admin only, já filtrado acima)
+        if (body.status) campos["Status"]                   = body.status;
+        if (body.motivo) campos["Motivo (status negativo)"] = body.motivo;
+
         // Edição completa (formulário)
-        if (body.tipo || body.municipio || body.area != null || body.valor != null) {
-          const TIPO_MAP   = TIPO_IMOVEL_MAP;
-          const ESTADO_MAP2 = ESTADO_MAP;
+        const ehEdicaoCompleta = body.tipo || body.municipio || body.area != null || body.valor != null;
+        if (ehEdicaoCompleta) {
           const finalidades = (body.finalidade || "").split(", ").map(f => f.trim());
           const finalidadePrincipal = finalidades.find(f => FINALIDADE_VALIDA.has(f)) || null;
-          const tipoMapeado   = TIPO_MAP[body.tipo]      || body.tipo   || null;
-          const estadoMapeado = ESTADO_MAP2[body.estado] || body.estado || null;
+          const tipoMapeado   = TIPO_IMOVEL_MAP[body.tipo]  || body.tipo   || null;
+          const estadoMapeado = ESTADO_MAP[body.estado]     || body.estado || null;
           const titulo = [tipoMapeado, body.municipio, body.estado].filter(Boolean).join(" · ");
-          if (titulo)                   campos["Título"]               = titulo;
-          if (tipoMapeado)              campos["Tipo de imóvel"]       = tipoMapeado;
-          if (finalidadePrincipal)      campos["Tipo de negócio"]      = finalidadePrincipal;
-          if (body.cep)                 campos["CEP"]                  = body.cep;
-          if (body.endereco)            campos["Endereço"]             = body.endereco;
-          if (body.municipio)           campos["Município"]            = body.municipio;
-          if (estadoMapeado)            campos["Estado"]               = estadoMapeado;
-          if (body.area      != null)   campos["Área total (m²)"]      = body.area;
-          if (body.areaPrivativa != null) campos["Área privativa (m²)"] = body.areaPrivativa;
-          if (body.valor     != null)   campos["Valor pretendido (R$)"] = body.valor;
-          if (body.comissao  != null)   campos["Comissão (%)"]         = body.comissao / 100;
-          if (body.detComissao)         campos["Detalhes da comissão"] = body.detComissao;
-          if (body.videoLink)           campos["Link de vídeo"]        = body.videoLink;
-          if (body.kmlLink)             campos["Link KMZ/KML"]         = body.kmlLink;
-          if (body.lat != null)         campos["Latitude"]             = body.lat;
-          if (body.lng != null)         campos["Longitude"]            = body.lng;
+          if (titulo)                     campos["Título"]                = titulo;
+          if (tipoMapeado)                campos["Tipo de imóvel"]        = tipoMapeado;
+          if (finalidadePrincipal)        campos["Tipo de negócio"]       = finalidadePrincipal;
+          if (body.cep)                   campos["CEP"]                   = body.cep;
+          if (body.endereco)              campos["Endereço"]              = body.endereco;
+          if (body.municipio)             campos["Município"]             = body.municipio;
+          if (estadoMapeado)              campos["Estado"]                = estadoMapeado;
+          if (body.area           != null) campos["Área total (m²)"]      = body.area;
+          if (body.areaPrivativa  != null) campos["Área privativa (m²)"]  = body.areaPrivativa;
+          if (body.valor          != null) campos["Valor pretendido (R$)"] = body.valor;
+          if (body.comissao       != null) campos["Comissão (%)"]         = body.comissao / 100;
+          if (body.detComissao)           campos["Detalhes da comissão"]  = body.detComissao;
+          if (body.videoLink)             campos["Link de vídeo"]         = body.videoLink;
+          if (body.kmlLink)               campos["Link KMZ/KML"]         = body.kmlLink;
+          if (body.lat != null)           campos["Latitude"]             = body.lat;
+          if (body.lng != null)           campos["Longitude"]            = body.lng;
           const obs = [
             finalidades.length > 1 ? `Finalidades: ${finalidades.join(", ")}` : null,
             body.observacoes || null,
@@ -847,6 +859,49 @@ export default {
           if (obs) campos["Observações"] = obs;
         }
         if (body.arquivos) campos["Arquivos (JSON)"] = JSON.stringify(body.arquivos);
+
+        // ── Log de auditoria ──────────────────────────
+        if (ehEdicaoCompleta || body.status || body.arquivos) {
+          const atual = await airtable(env, "GET", TBL.oportunidades, id);
+          const LABELS = {
+            "Título": "Título", "Tipo de imóvel": "Tipo de imóvel",
+            "Tipo de negócio": "Finalidade", "Área total (m²)": "Área total",
+            "Área privativa (m²)": "Área privativa", "Valor pretendido (R$)": "Valor pretendido",
+            "CEP": "CEP", "Endereço": "Endereço", "Município": "Município",
+            "Estado": "Estado", "Observações": "Observações",
+            "Link de vídeo": "Vídeo", "Link KMZ/KML": "KMZ/KML",
+            "Status": "Status", "Arquivos (JSON)": "Arquivos",
+          };
+          const alteracoes = [];
+          for (const [campo, novoValor] of Object.entries(campos)) {
+            const label    = LABELS[campo] || campo;
+            const anterior = atual.fields[campo];
+            const anteriorStr = campo === "Arquivos (JSON)"
+              ? (anterior ? `${JSON.parse(anterior).length} arquivo(s)` : "nenhum")
+              : (anterior != null ? String(anterior) : "—");
+            const novoStr = campo === "Arquivos (JSON)"
+              ? `${JSON.parse(novoValor).length} arquivo(s)`
+              : String(novoValor);
+            if (anteriorStr !== novoStr) {
+              alteracoes.push({ campo: label, de: anteriorStr, para: novoStr });
+            }
+          }
+          if (alteracoes.length) {
+            const entrada = {
+              data:      new Date().toISOString(),
+              email:     user.email,
+              nome:      user.name || user.email,
+              admin:     user.admin || false,
+              alteracoes,
+            };
+            const historicoAtual = atual.fields["Histórico (JSON)"] || "[]";
+            let historico = [];
+            try { historico = JSON.parse(historicoAtual); } catch {}
+            historico.push(entrada);
+            campos["Histórico (JSON)"] = JSON.stringify(historico);
+          }
+        }
+
         const data = await airtable(env, "PATCH", TBL.oportunidades, id, {}, { fields: campos });
         return corsResponse(data);
       }

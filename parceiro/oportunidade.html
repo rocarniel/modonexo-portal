@@ -46,7 +46,10 @@
         <a href="oportunidades.html" style="font-size:13px;color:var(--text-muted)">← Minhas Oportunidades</a>
         <h1 class="page-title" id="pageTitulo">Carregando…</h1>
       </div>
-      <div id="pageStatus"></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="pageStatus"></div>
+        <a id="btnEditar" href="#" class="btn btn-outline" style="font-size:13px;display:none">✏️ Editar</a>
+      </div>
     </div>
 
     <div class="page-body" id="conteudo" style="display:none">
@@ -115,6 +118,12 @@
             <div class="card-header"><span class="card-title">👁️ Acessos registrados</span></div>
             <div id="leadsResumo" style="font-size:13px;color:var(--text-muted)">Carregando…</div>
           </div>
+
+          <!-- Histórico -->
+          <div class="card" id="cardHistorico" style="display:none">
+            <div class="card-header"><span class="card-title">🕓 Histórico de alterações</span></div>
+            <div id="listaHistorico" style="font-size:13px"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -161,6 +170,9 @@
 
       document.getElementById('pageTitulo').textContent = f['Título'] || 'Sem título';
       document.getElementById('pageStatus').innerHTML   = badgeStatus(f['Status']);
+      const btnEd = document.getElementById('btnEditar');
+      btnEd.href         = 'nova-oportunidade.html?id=' + id;
+      btnEd.style.display = '';
       document.getElementById('conteudo').style.display = '';
 
       // Info grid
@@ -234,6 +246,7 @@
       }
 
       carregarLeads(id);
+      renderHistorico(f['Histórico (JSON)']);
 
     } catch (err) {
       document.getElementById('pageTitulo').textContent = 'Erro ao carregar';
@@ -274,6 +287,28 @@
             🕐 ${l.fields['Data e hora do acesso'] ? new Date(l.fields['Data e hora do acesso']).toLocaleString('pt-BR') : '—'}
           </div>`).join('') + '</div>';
     } catch { el.textContent = 'Indisponível.'; }
+  }
+
+  function renderHistorico(json) {
+    if (!json) return;
+    let log = [];
+    try { log = JSON.parse(json); } catch { return; }
+    if (!log.length) return;
+    const card = document.getElementById('cardHistorico');
+    const lista = document.getElementById('listaHistorico');
+    card.style.display = '';
+    lista.innerHTML = [...log].reverse().map(e => {
+      const dt = new Date(e.data).toLocaleString('pt-BR');
+      const quem = e.admin ? `<span style="color:var(--navy);font-weight:600">MODOnexo</span>` : `<span>${e.nome || e.email}</span>`;
+      const itens = (e.alteracoes || []).map(a =>
+        `<div style="margin-left:12px;color:var(--text-muted)">• <strong>${a.campo}:</strong> ${a.de} → ${a.para}</div>`
+      ).join('');
+      return `<div style="border-left:3px solid var(--border);padding:8px 12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          ${quem}<span style="color:var(--text-muted)">${dt}</span>
+        </div>${itens}
+      </div>`;
+    }).join('');
   }
 
   function abrirLightbox(url) {
