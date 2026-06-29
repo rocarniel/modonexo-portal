@@ -373,10 +373,10 @@
   }
 
   window.removeImagemExistente = (i) => {
-    arquivosExistentes = arquivosExistentes.filter((a, idx) => !(a.tipo === 'imagem' && arquivosExistentes.filter(x => x.tipo==='imagem').indexOf(a) === i));
-    document.getElementById('previewImagens').innerHTML = '';
+    const imgs = arquivosExistentes.filter(a => a.tipo === 'imagem');
+    const toRemove = imgs[i];
+    arquivosExistentes = arquivosExistentes.filter(a => a !== toRemove);
     renderArquivosExistentes();
-    renderImagePreviews();
   };
   window.removeDocExistente = (i) => {
     const docs = arquivosExistentes.filter(a => a.tipo === 'documento');
@@ -487,13 +487,15 @@
 
   function renderImagePreviews() {
     const el = document.getElementById('previewImagens');
-    el.innerHTML = imagensFiles.map((f, i) => {
+    el.querySelectorAll('.img-novo').forEach(d => d.remove());
+    const html = imagensFiles.map((f, i) => {
       const url = URL.createObjectURL(f);
-      return `<div style="position:relative">
+      return `<div class="img-novo" style="position:relative">
         <img src="${url}" class="thumb" title="${f.name}">
         <button type="button" onclick="removeImagem(${i})" style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border:none;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center">×</button>
       </div>`;
     }).join('');
+    el.insertAdjacentHTML('beforeend', html);
   }
 
   window.removeImagem = (i) => { imagensFiles.splice(i, 1); renderImagePreviews(); };
