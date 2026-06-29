@@ -183,6 +183,10 @@
 
           <div class="form-group">
             <label>Documentos (PDF — máx. 20 MB cada)</label>
+            <div id="docsExistentesContainer" style="display:none;margin-bottom:12px">
+              <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Documentos já salvos — clique em Remover para substituir:</p>
+              <div id="listaDocsExistentes"></div>
+            </div>
             <div class="upload-zone" id="zoneDocs" onclick="document.getElementById('inputDocs').click()">
               <div class="icon">📄</div>
               <p><strong>Clique para selecionar</strong> os PDFs</p>
@@ -346,14 +350,18 @@
     }
     // Docs existentes
     const docs = arquivosExistentes.filter(a => a.tipo === 'documento');
-    if (docs.length) {
-      const lista = document.getElementById('listDocs');
-      const existHtml = docs.map((a, i) =>
-        `<div class="file-item" id="docExist-${i}">
-          <span>📄</span><span class="file-name">${a.nome}</span>
-          <button type="button" onclick="removeDocExistente(${i})" class="btn btn-sm" style="color:var(--danger);border-color:var(--danger)">Remover</button>
+    const container = document.getElementById('docsExistentesContainer');
+    const lista = document.getElementById('listaDocsExistentes');
+    if (docs.length && container && lista) {
+      lista.innerHTML = docs.map((a, i) =>
+        `<div class="file-item" id="docExist-${i}" style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px">
+          <span>📄</span>
+          <span class="file-name" style="flex:1;font-size:13px">${a.nome}</span>
+          <button type="button" onclick="removeDocExistente(${i})" class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);white-space:nowrap">✕ Remover</button>
         </div>`).join('');
-      lista.insertAdjacentHTML('afterbegin', existHtml);
+      container.style.display = 'block';
+    } else if (container) {
+      container.style.display = 'none';
     }
   }
 
