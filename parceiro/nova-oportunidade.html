@@ -480,22 +480,28 @@
       // Upload imagens
       const urlsImagens = [];
       for (const f of imagensFiles) {
-        const res = await uploadCloudinary(f, 'modo-imagens');
-        urlsImagens.push({ url: res.secure_url, nome: f.name, tipo: 'imagem' });
+        try {
+          const res = await uploadCloudinary(f, 'modo-imagens');
+          urlsImagens.push({ url: res.secure_url, nome: f.name, tipo: 'imagem' });
+        } catch (e) { throw new Error('Upload imagem "' + f.name + '": ' + e.message); }
       }
 
       // Upload docs
       const urlsDocs = [];
       for (const f of docsFiles) {
-        const res = await uploadCloudinary(f, 'modo-docs');
-        urlsDocs.push({ url: res.secure_url, nome: f.name, tipo: 'documento' });
+        try {
+          const res = await uploadCloudinary(f, 'modo-docs');
+          urlsDocs.push({ url: res.secure_url, nome: f.name, tipo: 'documento' });
+        } catch (e) { throw new Error('Upload documento "' + f.name + '": ' + e.message); }
       }
 
       // Upload KMZ/KML
       let kmlLinkFinal = '';
       if (kmzFile) {
-        const res = await uploadCloudinary(kmzFile, 'modo-kmz');
-        kmlLinkFinal = res.secure_url;
+        try {
+          const res = await uploadCloudinary(kmzFile, 'modo-kmz');
+          kmlLinkFinal = res.secure_url;
+        } catch (e) { throw new Error('Upload KMZ "' + kmzFile.name + '": ' + e.message); }
       }
 
       const token = gerarTokenLocal();
@@ -510,7 +516,6 @@
         area:           areaVal,
         areaPrivativa:  areaPrivativaVal,
         valor:          parseFloat(document.getElementById('valor').value) || null,
-
         comissao:       parseFloat(document.getElementById('comissao').value) || null,
         detComissao:    document.getElementById('detComissao').value,
         videoLink:      document.getElementById('videoLink').value,
@@ -524,11 +529,15 @@
         emailParceiro:  userProfile?.email,
       };
 
-      await API.oportunidades.criar(payload);
+      try {
+        await API.oportunidades.criar(payload);
+      } catch (e) { throw new Error('Servidor: ' + e.message); }
+
       localStorage.removeItem('rascunho_oportunidade');
       showToast('Oportunidade enviada com sucesso!', 'success');
       setTimeout(() => location.href = 'oportunidades.html', 1500);
     } catch (err) {
+      console.error('[Submit]', err);
       alert.textContent = 'Erro: ' + err.message;
       alert.style.display = 'flex';
       btn.disabled = false; btn.textContent = 'Enviar Oportunidade';
