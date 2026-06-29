@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MODOnexo — Detalhe da Oportunidade</title>
+  <link rel="stylesheet" href="../css/style.css?v=202606291610">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #mapDetalhe { height: 260px; border-radius: 10px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
+    .info-item label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); display: block; margin-bottom: 2px; }
+    .info-item span  { font-size: 15px; font-weight: bold; color: var(--navy); }
+    .thumb-g { display: flex; flex-wrap: wrap; gap: 8px; }
+    .thumb-g img { width: 90px; height: 90px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 1px solid var(--border); transition: transform .2s; }
+    .thumb-g img:hover { transform: scale(1.05); }
+    .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.9); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+    .lightbox.hidden { display: none; }
+    .lightbox img { max-width: 95vw; max-height: 90vh; border-radius: 8px; }
+    .lightbox-close { position: absolute; top: 16px; right: 20px; color: #fff; font-size: 32px; cursor: pointer; background: none; border: none; }
+  </style>
+</head>
+<body>
+<div class="app-layout">
+  <div id="sidebarMount"></div>
+  <div class="main-content">
+    <div id="mobileHeaderMount"></div>
+    <div class="page-header">
+      <div>
+        <a href="oportunidades.html" style="font-size:13px;color:var(--text-muted)">← Minhas Oportunidades</a>
+        <h1 class="page-title" id="pageTitulo">Carregando…</h1>
+      </div>
+      <div id="pageStatus"></div>
+    </div>
+
+    <div class="page-body" id="conteudo" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+
+        <!-- Coluna principal -->
+        <div style="display:flex;flex-direction:column;gap:16px">
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Dados do Imóvel</span></div>
+            <div class="info-grid" id="infoGrid"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">📍 Localização</span></div>
+            <div id="enderecoInfo" style="font-size:14px;margin-bottom:12px;color:var(--text-muted)"></div>
+            <div id="mapDetalhe"></div>
+            <div id="kmlInfo" style="margin-top:10px;font-size:13px"></div>
+          </div>
+
+          <div class="card" id="cardImagens" style="display:none">
+            <div class="card-header"><span class="card-title">🖼️ Imagens</span></div>
+            <div class="thumb-g" id="galeriaImagens"></div>
+          </div>
+
+          <div class="card" id="cardDocs" style="display:none">
+            <div class="card-header"><span class="card-title">📄 Documentos</span></div>
+            <div id="listaDocs"></div>
+          </div>
+
+          <div class="card" id="cardVideo" style="display:none">
+            <div class="card-header"><span class="card-title">🎬 Vídeo</span></div>
+            <div id="videoEmbed"></div>
+          </div>
+
+          <div class="card" id="cardObs" style="display:none">
+            <div class="card-header"><span class="card-title">📝 Observações</span></div>
+            <p id="obsTexto" style="font-size:14px;color:var(--text);line-height:1.6"></p>
+          </div>
+        </div>
+
+        <!-- Coluna lateral -->
+        <div style="display:flex;flex-direction:column;gap:16px">
+
+          <!-- Comissão -->
+          <div class="card" id="cardComissao" style="display:none">
+            <div class="card-header"><span class="card-title">💰 Comissão</span></div>
+            <div id="comissaoInfo" style="font-size:14px"></div>
+          </div>
+
+          <!-- Compartilhar -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">🔗 Compartilhar</span>
+              <button class="btn btn-sm btn-gold" onclick="gerarLink()">Gerar link</button>
+            </div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Crie um link rastreável para enviar ao seu cliente.</p>
+            <div id="linkGerado" style="display:none">
+              <input type="text" id="linkInput" readonly style="background:var(--bg);font-size:12px">
+              <button class="btn btn-gold btn-block" style="margin-top:8px;width:100%" onclick="copiarLink()">📋 Copiar link</button>
+            </div>
+          </div>
+
+          <!-- Acessos -->
+          <div class="card">
+            <div class="card-header"><span class="card-title">👁️ Acessos registrados</span></div>
+            <div id="leadsResumo" style="font-size:13px;color:var(--text-muted)">Carregando…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox hidden" id="lightbox" onclick="fecharLightbox()">
+  <button class="lightbox-close" onclick="fecharLightbox()">✕</button>
+  <img id="lightboxImg" src="">
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202606291610"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202606291610"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202606291610"></script>
+<script src="../js/config.js?v=202606291610"></script>
+<script src="../js/auth.js?v=202606291610"></script>
+<script src="../js/api.js?v=202606291610"></script>
+<script src="../js/layout.js?v=202606291610"></script>
+<script>
+  firebase.initializeApp(CONFIG.firebase);
+  document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_PARCEIRO, '/parceiro/oportunidades.html');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Oportunidade');
+
+  const params = new URLSearchParams(location.search);
+  const id     = params.get('id');
+  if (!id) { location.href = 'oportunidades.html'; }
+
+  requireAuth(false).then(async (profile) => {
+    renderUserChip(profile);
+    try {
+      const data = await API.oportunidades.obter(id);
+      const f    = data.fields;
+
+      document.getElementById('pageTitulo').textContent = f['Título'] || 'Sem título';
+      document.getElementById('pageStatus').innerHTML   = badgeStatus(f['Status']);
+      document.getElementById('conteudo').style.display = '';
+
+      // Info grid
+      document.getElementById('infoGrid').innerHTML = [
+        ['Tipo de imóvel',   f['Tipo de imóvel']],
+        ['Finalidade',       f['Tipo de negócio']],
+        ['Área total',       (f['Área total (m²)'] ?? f['Área (m²)']) != null ? (f['Área total (m²)'] ?? f['Área (m²)']).toLocaleString('pt-BR') + ' m²' : null],
+        ['Valor pretendido', formatMoeda(f['Valor pretendido (R$)'])],
+        ['Data de entrada',  formatData(f['Data de entrada'])],
+        ['Status',           f['Status']],
+      ].map(([l, v]) => v ? `<div class="info-item"><label>${l}</label><span>${v}</span></div>` : '').join('');
+
+      // Endereço
+      const endParts = [f['Endereço'], f['Município'], f['Estado'], f['CEP']].filter(Boolean);
+      document.getElementById('enderecoInfo').textContent = endParts.join(', ') || 'Endereço não informado';
+
+      // Mapa
+      const mapD = L.map('mapDetalhe').setView([-14.235, -51.925], 4);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(mapD);
+      if (f['Latitude'] && f['Longitude']) {
+        const ll = [f['Latitude'], f['Longitude']];
+        L.marker(ll).addTo(mapD);
+        mapD.setView(ll, 14);
+      }
+      if (f['Link KMZ/KML']) {
+        document.getElementById('kmlInfo').innerHTML = `<a href="${f['Link KMZ/KML']}" target="_blank" class="btn btn-sm btn-outline">⬇️ Baixar KMZ/KML</a>`;
+      }
+
+      // Imagens
+      if (f['_imagens']?.length) {
+        document.getElementById('cardImagens').style.display = '';
+        document.getElementById('galeriaImagens').innerHTML  = f['_imagens'].map(url =>
+          `<img src="${url}" onclick="abrirLightbox('${url}')" alt="imagem">`
+        ).join('');
+      }
+
+      // Docs
+      if (f['_documentos']?.length) {
+        document.getElementById('cardDocs').style.display = '';
+        document.getElementById('listaDocs').innerHTML    = f['_documentos'].map(d =>
+          `<div class="file-item"><span>📄</span><span class="file-name">${d.nome}</span><a href="${d.url}" target="_blank" class="btn btn-sm btn-outline">Baixar</a></div>`
+        ).join('');
+      }
+
+      // Vídeo
+      if (f['Link de vídeo']) {
+        document.getElementById('cardVideo').style.display = '';
+        const url  = f['Link de vídeo'];
+        const ytId = url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1];
+        document.getElementById('videoEmbed').innerHTML = ytId
+          ? `<iframe width="100%" height="240" src="https://www.youtube.com/embed/${ytId}" frameborder="0" allowfullscreen style="border-radius:8px"></iframe>`
+          : `<a href="${url}" target="_blank" class="btn btn-outline">▶️ Abrir vídeo</a>`;
+      }
+
+      // Observações
+      if (f['Observações']) {
+        document.getElementById('cardObs').style.display = '';
+        document.getElementById('obsTexto').textContent  = f['Observações'];
+      }
+
+      // Comissão
+      if (f['Comissão (%)'] || f['Detalhes da comissão']) {
+        document.getElementById('cardComissao').style.display = '';
+        document.getElementById('comissaoInfo').innerHTML = `
+          ${f['Comissão (%)'] ? `<strong>${(f['Comissão (%)']*100).toFixed(1)}%</strong><br>` : ''}
+          <span style="color:var(--text-muted)">${f['Detalhes da comissão'] || ''}</span>`;
+      }
+
+      // Token / link
+      if (f['Token de compartilhamento']) {
+        mostrarLink(f['Token de compartilhamento']);
+      }
+
+      carregarLeads(id);
+
+    } catch (err) {
+      document.getElementById('pageTitulo').textContent = 'Erro ao carregar';
+      showToast('Erro: ' + err.message, 'error');
+    }
+  });
+
+  async function gerarLink() {
+    try {
+      const res = await API.oportunidades.gerarToken(id);
+      mostrarLink(res.token);
+      showToast('Link gerado!', 'success');
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  }
+
+  function mostrarLink(token) {
+    const link = CONFIG.portalUrl + '/compartilhar/?token=' + token;
+    document.getElementById('linkInput').value = link;
+    document.getElementById('linkGerado').style.display = '';
+  }
+
+  function copiarLink() {
+    navigator.clipboard.writeText(document.getElementById('linkInput').value);
+    showToast('Link copiado!', 'success');
+  }
+
+  async function carregarLeads(opId) {
+    const el = document.getElementById('leadsResumo');
+    try {
+      const data  = await API.leads.listar();
+      const leads = (data.records || []).filter(l => l.fields['ID da oportunidade'] === opId);
+      if (!leads.length) { el.textContent = 'Nenhum acesso registrado ainda.'; return; }
+      el.innerHTML = `<strong>${leads.length} acesso(s) registrado(s)</strong><div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">` +
+        leads.map(l => `
+          <div style="font-size:12px;padding:6px;background:var(--bg);border-radius:6px">
+            <strong>${l.fields['Nome'] || '—'}</strong><br>
+            📱 ${l.fields['WhatsApp'] || '—'}<br>
+            🕐 ${l.fields['Data e hora do acesso'] ? new Date(l.fields['Data e hora do acesso']).toLocaleString('pt-BR') : '—'}
+          </div>`).join('') + '</div>';
+    } catch { el.textContent = 'Indisponível.'; }
+  }
+
+  function abrirLightbox(url) {
+    document.getElementById('lightboxImg').src = url;
+    document.getElementById('lightbox').classList.remove('hidden');
+  }
+  function fecharLightbox() { document.getElementById('lightbox').classList.add('hidden'); }
+</script>
+</body>
+</html>
