@@ -34,8 +34,13 @@
             </div>
           </div>
           <div class="form-row">
-            <div class="form-group" style="flex:0 0 120px">
-              <label class="required">UF do CRECI</label>
+            <div class="form-group">
+              <label class="required">Nº do CRECI</label>
+              <input type="text" id="creci" placeholder="Ex: 54606-F" required autocomplete="off" style="text-transform:uppercase">
+              <div class="form-hint" id="hintCreci" style="display:none;color:var(--error)"></div>
+            </div>
+            <div class="form-group" style="flex:0 0 100px">
+              <label class="required">UF</label>
               <select id="creciUf" required>
                 <option value="">UF</option>
                 <option>AC</option><option>AL</option><option>AM</option><option>AP</option>
@@ -47,11 +52,16 @@
                 <option>SE</option><option>SP</option><option>TO</option>
               </select>
             </div>
-            <div class="form-group">
-              <label class="required">Nº do CRECI</label>
-              <input type="text" id="creci" placeholder="Ex: 54606-F" required autocomplete="off" style="text-transform:uppercase">
-              <div class="form-hint" id="hintCreci" style="display:none;color:var(--error)"></div>
+            <div class="form-group" style="flex:0 0 140px">
+              <label class="required">Tipo</label>
+              <select id="creciTipo" required>
+                <option value="">Selecione</option>
+                <option value="PF">Pessoa Física</option>
+                <option value="PJ">Pessoa Jurídica</option>
+              </select>
             </div>
+          </div>
+          <div class="form-row">
             <div class="form-group">
               <label class="required">WhatsApp</label>
               <input type="tel" id="whatsapp" placeholder="(11) 99999-9999" required>
@@ -136,11 +146,12 @@
 
       try {
         await API.parceiros.cadastrar({
-          nome:     document.getElementById("nome").value.trim(),
-          email:    document.getElementById("email").value.trim(),
-          creci:    document.getElementById("creci").value.trim(),
-          creciUf:  document.getElementById("creciUf").value,
-          whatsapp: document.getElementById("whatsapp").value.trim(),
+          nome:      document.getElementById("nome").value.trim(),
+          email:     document.getElementById("email").value.trim(),
+          creci:     document.getElementById("creci").value.trim(),
+          creciUf:   document.getElementById("creciUf").value,
+          creciTipo: document.getElementById("creciTipo").value,
+          whatsapp:  document.getElementById("whatsapp").value.trim(),
         });
         document.getElementById("formArea").style.display = "none";
         document.getElementById("sucesso").style.display  = "block";
