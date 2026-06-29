@@ -181,7 +181,6 @@
   <div class="docviewer-body" id="dvBody"></div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202606291610"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202606291610"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202606291610"></script>
@@ -447,37 +446,14 @@
     if (imgs.includes(ext)) {
       html = `<img src="${d.url}" alt="${d.nome}" style="max-width:100%;max-height:100%;margin:auto;display:block;object-fit:contain;height:100%">`;
     } else if (ext === 'pdf') {
-      html = `<div id="pdfCanvas" style="overflow-y:auto;height:100%;padding:16px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:8px"><p style="color:#aaa">Carregando PDF…</p></div>`;
+      window.open(d.url, '_blank');
+      return;
     } else {
       html = `<div class="no-preview"><span style="font-size:64px">📎</span><p style="font-size:16px">${d.nome}</p><p style="font-size:13px;opacity:.7">Visualização não disponível para este formato</p><a href="${d.url}" target="_blank" class="btn btn-gold" style="margin-top:8px">⬇️ Baixar arquivo</a></div>`;
     }
     document.getElementById('dvBody').innerHTML = html;
     document.getElementById('docviewer').classList.remove('hidden');
     document.body.style.overflow = 'hidden';
-    if (ext === 'pdf') renderPdfJs(d.url);
-  }
-
-  async function renderPdfJs(url) {
-    const container = document.getElementById('pdfCanvas');
-    try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const pdf = await pdfjsLib.getDocument({ url, withCredentials: false }).promise;
-      container.innerHTML = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page     = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.8 });
-        const canvas   = document.createElement('canvas');
-        canvas.width   = viewport.width;
-        canvas.height  = viewport.height;
-        canvas.style.cssText = 'max-width:100%;border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,.5)';
-        container.appendChild(canvas);
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-      }
-    } catch (err) {
-      container.innerHTML = `<p style="color:#f87171">Erro ao carregar PDF: ${err.message}</p>
-        <a href="${url}" target="_blank" style="color:var(--gold);margin-top:12px;display:block">⬇️ Baixar arquivo</a>`;
-    }
   }
 
   function fecharDocViewer() {
