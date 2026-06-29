@@ -54,7 +54,10 @@
         <a href="oportunidades.html" style="font-size:13px;color:var(--text-muted)">← Oportunidades</a>
         <h1 class="page-title" id="pageTitulo">Carregando…</h1>
       </div>
-      <div id="pageStatus"></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="pageStatus"></div>
+        <a id="btnEditar" href="#" class="btn btn-outline" style="font-size:13px">✏️ Editar</a>
+      </div>
     </div>
 
     <div class="page-body" id="conteudo" style="display:none">
@@ -89,25 +92,6 @@
             <div id="listaDocs"></div>
           </div>
 
-          <!-- Anexar arquivos (admin) -->
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">📎 Anexar arquivos</span>
-              <span style="font-size:12px;color:var(--text-muted)">Imagens e documentos</span>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:10px">
-              <div>
-                <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px">Imagens</label>
-                <input type="file" id="anexarImagens" multiple accept="image/*" style="font-size:13px;width:100%">
-              </div>
-              <div>
-                <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px">Documentos (PDF, DOC, etc.)</label>
-                <input type="file" id="anexarDocs" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip" style="font-size:13px;width:100%">
-              </div>
-              <button class="btn btn-navy" id="btnAnexar" onclick="anexarArquivos()" style="width:100%;margin-top:4px">⬆️ Enviar arquivos</button>
-              <div id="anexarFeedback" style="display:none;font-size:13px"></div>
-            </div>
-          </div>
 
           <!-- Vídeo -->
           <div class="card" id="cardVideo" style="display:none">
@@ -219,6 +203,7 @@
 
       document.getElementById('pageTitulo').textContent = f['Título'] || 'Sem título';
       document.getElementById('pageStatus').innerHTML   = badgeStatus(f['Status']);
+      document.getElementById('btnEditar').href = '../parceiro/nova-oportunidade.html?id=' + id + '&origem=MODO';
       document.getElementById('conteudo').style.display = '';
 
       // Info grid
@@ -372,70 +357,6 @@
             🕐 ${l.fields['Data e hora do acesso'] ? new Date(l.fields['Data e hora do acesso']).toLocaleString('pt-BR') : '—'}
           </div>`).join('') + '</div>';
     } catch { /* silencioso */ }
-  }
-
-  async function anexarArquivos() {
-    const imgFiles  = Array.from(document.getElementById('anexarImagens').files);
-    const docFiles  = Array.from(document.getElementById('anexarDocs').files);
-    if (!imgFiles.length && !docFiles.length) {
-      showToast('Selecione ao menos um arquivo.', 'error'); return;
-    }
-    const btn = document.getElementById('btnAnexar');
-    const fb  = document.getElementById('anexarFeedback');
-    btn.disabled  = true;
-    btn.textContent = '⏳ Enviando…';
-    fb.style.display = 'none';
-    try {
-      const novos = [];
-      for (const f of imgFiles) {
-        const r = await uploadCloudinary(f, 'modo-imagens');
-        novos.push({ url: r.secure_url, nome: f.name, tipo: 'imagem' });
-      }
-      for (const f of docFiles) {
-        const r = await uploadCloudinary(f, 'modo-docs');
-        novos.push({ url: r.secure_url, nome: f.name, tipo: 'documento' });
-      }
-      // Mescla com arquivos existentes
-      const existentes = [
-        ...(opData?.fields?._imagens   || []).map(url => ({ url, nome: url.split('/').pop(), tipo: 'imagem' })),
-        ...(opData?.fields?._documentos || []),
-      ];
-      const todos = [...existentes, ...novos];
-      // Salva via PATCH no worker
-      const token = await getIdToken();
-      const resp  = await fetch(`${CONFIG.workerUrl}/oportunidades/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ arquivos: todos }),
-      });
-      if (!resp.ok) throw new Error(await resp.text());
-      // Atualiza UI sem recarregar
-      if (opData) opData.fields['Arquivos (JSON)'] = JSON.stringify(todos);
-      const imgs = todos.filter(a => a.tipo === 'imagem').map(a => a.url);
-      const docs = todos.filter(a => a.tipo === 'documento');
-      if (imgs.length) {
-        document.getElementById('cardImagens').style.display = '';
-        document.getElementById('galeriaImagens').innerHTML = imgs.map(url =>
-          `<img src="${url}" onclick="abrirLightbox('${url}')" alt="imagem">`).join('');
-      }
-      if (docs.length) {
-        document.getElementById('cardDocs').style.display = '';
-        document.getElementById('listaDocs').innerHTML = '<div class="doc-grid">' + docs.map(d => docCard(d)).join('') + '</div>';
-      }
-      document.getElementById('anexarImagens').value = '';
-      document.getElementById('anexarDocs').value    = '';
-      fb.textContent   = `✅ ${novos.length} arquivo(s) anexado(s) com sucesso!`;
-      fb.style.color   = 'var(--success)';
-      fb.style.display = 'block';
-      setTimeout(() => fb.style.display = 'none', 4000);
-    } catch (err) {
-      fb.textContent   = '❌ Erro: ' + err.message;
-      fb.style.color   = 'var(--danger)';
-      fb.style.display = 'block';
-    } finally {
-      btn.disabled    = false;
-      btn.textContent = '⬆️ Enviar arquivos';
-    }
   }
 
   function abrirLightbox(url) {

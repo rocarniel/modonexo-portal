@@ -31,6 +31,7 @@
 
     <div class="page-header">
       <h1 class="page-title" id="pageTitle">Nova Oportunidade</h1>
+      <a id="btnVoltar" href="" style="display:none;font-size:13px;color:var(--text-muted)">← Voltar</a>
     </div>
 
     <div class="page-body">
@@ -227,20 +228,141 @@
 <script>
   firebase.initializeApp(CONFIG.firebase);
 
-  // Detectar se é captação interna
-  const params = new URLSearchParams(location.search);
-  const origemMODO = params.get('origem') === 'MODO';
-  if (origemMODO) document.getElementById('pageTitle').textContent = 'Nova Oportunidade (Captação MODO)';
+  // Detectar se é captação interna e/ou edição
+  const params      = new URLSearchParams(location.search);
+  const origemMODO  = params.get('origem') === 'MODO';
+  const editandoId  = params.get('id') || null;
 
   const navItems = origemMODO ? NAV_ADMIN : NAV_PARCEIRO;
   document.getElementById('sidebarMount').innerHTML      = renderSidebar(navItems, origemMODO ? '/admin/mapa.html' : '/parceiro/nova-oportunidade.html');
-  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Nova Oportunidade');
+  document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader(editandoId ? 'Editar Oportunidade' : 'Nova Oportunidade');
+
+  if (editandoId) {
+    document.getElementById('pageTitle').textContent = 'Editar Oportunidade';
+    document.getElementById('btnEnviar').textContent  = 'Salvar Alterações';
+    const btnVoltar = document.getElementById('btnVoltar');
+    btnVoltar.style.display = '';
+    btnVoltar.href = origemMODO ? '../admin/oportunidade.html?id=' + editandoId : 'oportunidade.html?id=' + editandoId;
+  } else if (origemMODO) {
+    document.getElementById('pageTitle').textContent = 'Nova Oportunidade (Captação MODO)';
+  }
+
+  // Arquivos já existentes (carregados na edição)
+  let arquivosExistentes = [];
 
   let userProfile = null;
-  requireAuth(origemMODO).then(p => {
+  requireAuth(origemMODO).then(async p => {
     userProfile = p;
     renderUserChip(p);
+    if (editandoId) await carregarParaEdicao(editandoId);
   });
+
+  async function carregarParaEdicao(id) {
+    try {
+      const data = await API.oportunidades.obter(id);
+      const f    = data.fields;
+
+      // Campos texto simples
+      const mapa = {
+        municipio: f['Município'], estado: f['Estado'], cep: f['CEP'],
+        videoLink: f['Link de vídeo'], obs: f['Observações'],
+        comissao:  f['Comissão (%)'] != null ? (f['Comissão (%)'] * 100).toString() : '',
+        detComissao: f['Detalhes da comissão'],
+      };
+      // Endereço: decompõe "Rua, Número, Bairro"
+      if (f['Endereço']) {
+        const partes = f['Endereço'].split(', ');
+        mapa.rua    = partes[0] || '';
+        mapa.numero = partes[1] || '';
+        mapa.bairro = partes[2] || '';
+      }
+      Object.entries(mapa).forEach(([id, val]) => {
+        const el = document.getElementById(id);
+        if (el && val != null) el.value = val;
+      });
+
+      // Tipo de imóvel
+      if (f['Tipo de imóvel']) document.getElementById('tipo').value = f['Tipo de imóvel'];
+      document.getElementById('tipo').dispatchEvent(new Event('change'));
+
+      // Finalidade
+      const finalidade = f['Tipo de negócio'];
+      if (finalidade) {
+        const cb = document.querySelector(`.finalidade-cb[value="${finalidade}"]`);
+        if (cb) cb.checked = true;
+      }
+
+      // Área e Valor (hidden + display)
+      if (f['Área total (m²)'] != null) {
+        document.getElementById('area').value = f['Área total (m²)'];
+        aplicarFormatacaoDisplay('areaDisplay', 'area', false);
+      }
+      if (f['Área privativa (m²)'] != null) {
+        document.getElementById('areaPrivativa').value = f['Área privativa (m²)'];
+        aplicarFormatacaoDisplay('areaPrivativaDisplay', 'areaPrivativa', false);
+      }
+      if (f['Valor pretendido (R$)'] != null) {
+        document.getElementById('valor').value = f['Valor pretendido (R$)'];
+        aplicarFormatacaoDisplay('valorDisplay', 'valor', true);
+      }
+
+      // Mapa
+      if (f['Latitude'] && f['Longitude']) {
+        lat = f['Latitude']; lng = f['Longitude'];
+        const latlng = L.latLng(lat, lng);
+        map.setView(latlng, 15);
+        fixarPino(latlng);
+      }
+
+      // Arquivos já salvos — mostrar como previews
+      const arquivosJson = f['Arquivos (JSON)'];
+      if (arquivosJson) {
+        try { arquivosExistentes = JSON.parse(arquivosJson); } catch {}
+      }
+      renderArquivosExistentes();
+
+    } catch (err) {
+      showToast('Erro ao carregar oportunidade: ' + err.message, 'error');
+    }
+  }
+
+  function renderArquivosExistentes() {
+    // Imagens existentes
+    const imgs = arquivosExistentes.filter(a => a.tipo === 'imagem');
+    if (imgs.length) {
+      const prev = document.getElementById('previewImagens');
+      const existHtml = imgs.map((a, i) =>
+        `<div style="position:relative">
+          <img src="${a.url}" class="thumb" title="${a.nome}">
+          <button type="button" onclick="removeImagemExistente(${i})" style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border:none;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center">×</button>
+        </div>`).join('');
+      prev.insertAdjacentHTML('afterbegin', existHtml);
+    }
+    // Docs existentes
+    const docs = arquivosExistentes.filter(a => a.tipo === 'documento');
+    if (docs.length) {
+      const lista = document.getElementById('listaDocFiles');
+      const existHtml = docs.map((a, i) =>
+        `<div class="file-item" id="docExist-${i}">
+          <span>📄</span><span class="file-name">${a.nome}</span>
+          <button type="button" onclick="removeDocExistente(${i})" class="btn btn-sm" style="color:var(--danger);border-color:var(--danger)">Remover</button>
+        </div>`).join('');
+      lista.insertAdjacentHTML('afterbegin', existHtml);
+    }
+  }
+
+  window.removeImagemExistente = (i) => {
+    arquivosExistentes = arquivosExistentes.filter((a, idx) => !(a.tipo === 'imagem' && arquivosExistentes.filter(x => x.tipo==='imagem').indexOf(a) === i));
+    document.getElementById('previewImagens').innerHTML = '';
+    renderArquivosExistentes();
+    renderImagePreviews();
+  };
+  window.removeDocExistente = (i) => {
+    const docs = arquivosExistentes.filter(a => a.tipo === 'documento');
+    const toRemove = docs[i];
+    arquivosExistentes = arquivosExistentes.filter(a => a !== toRemove);
+    renderArquivosExistentes();
+  };
 
   // ── Mapa com pino ───────────────────────────────
   const map = L.map('mapPin').setView([-14.235, -51.925], 4);
@@ -503,7 +625,7 @@
         } catch (e) { throw new Error('Upload KMZ "' + kmzFile.name + '": ' + e.message); }
       }
 
-      const token = gerarTokenLocal();
+      const arquivosFinais = [...arquivosExistentes, ...urlsImagens, ...urlsDocs];
 
       const payload = {
         tipo:           document.getElementById('tipo').value,
@@ -522,19 +644,29 @@
         observacoes:    document.getElementById('obs').value,
         lat:            lat ? parseFloat(lat) : null,
         lng:            lng ? parseFloat(lng) : null,
-        arquivos:       [...urlsImagens, ...urlsDocs],
-        token,
-        origem:         origemMODO ? 'MODO' : 'Parceiro',
-        emailParceiro:  userProfile?.email,
+        arquivos:       arquivosFinais,
       };
 
       try {
-        await API.oportunidades.criar(payload);
+        if (editandoId) {
+          await API.oportunidades.atualizar(editandoId, payload);
+        } else {
+          payload.token         = gerarTokenLocal();
+          payload.origem        = origemMODO ? 'MODO' : 'Parceiro';
+          payload.emailParceiro = userProfile?.email;
+          await API.oportunidades.criar(payload);
+        }
       } catch (e) { throw new Error('Servidor: ' + e.message); }
 
       localStorage.removeItem('rascunho_oportunidade');
-      showToast('Oportunidade enviada com sucesso!', 'success');
-      setTimeout(() => location.href = 'oportunidades.html', 1500);
+      if (editandoId) {
+        showToast('Oportunidade atualizada!', 'success');
+        const destino = origemMODO ? '../admin/oportunidade.html?id=' + editandoId : 'oportunidade.html?id=' + editandoId;
+        setTimeout(() => location.href = destino, 1200);
+      } else {
+        showToast('Oportunidade enviada com sucesso!', 'success');
+        setTimeout(() => location.href = 'oportunidades.html', 1500);
+      }
     } catch (err) {
       console.error('[Submit]', err);
       alert.textContent = 'Erro: ' + err.message;
@@ -588,13 +720,13 @@
     document.getElementById('tipo').dispatchEvent(new Event('change'));
   }
 
-  // Salva a cada 30 segundos e ao mudar qualquer campo
-  setInterval(salvarRascunho, 30000);
-  document.getElementById('formOp').addEventListener('change', salvarRascunho);
-  document.getElementById('formOp').addEventListener('input', salvarRascunho);
-
-  // Restaurar ao carregar (após mapa inicializar)
-  setTimeout(restaurarRascunho, 800);
+  // Auto-save só na criação, não na edição
+  if (!editandoId) {
+    setInterval(salvarRascunho, 30000);
+    document.getElementById('formOp').addEventListener('change', salvarRascunho);
+    document.getElementById('formOp').addEventListener('input', salvarRascunho);
+    setTimeout(restaurarRascunho, 800);
+  }
 </script>
 </body>
 </html>
