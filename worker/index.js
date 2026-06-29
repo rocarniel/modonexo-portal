@@ -321,8 +321,14 @@ export default {
         return new Response("URL inválida", { status: 400, headers: CORS });
       }
       try {
-        const resp = await fetch(pdfUrl);
-        if (!resp.ok) return new Response("Erro ao buscar PDF", { status: resp.status, headers: CORS });
+        const resp = await fetch(pdfUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept": "application/pdf,*/*",
+            "Referer": "https://modonexo.com.br/",
+          }
+        });
+        if (!resp.ok) return new Response("Erro ao buscar PDF: " + resp.status, { status: resp.status, headers: CORS });
         const buffer = await resp.arrayBuffer();
         return new Response(buffer, {
           headers: {
