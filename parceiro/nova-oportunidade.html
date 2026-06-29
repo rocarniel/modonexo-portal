@@ -343,7 +343,7 @@
     // Docs existentes
     const docs = arquivosExistentes.filter(a => a.tipo === 'documento');
     if (docs.length) {
-      const lista = document.getElementById('listaDocFiles');
+      const lista = document.getElementById('listDocs');
       const existHtml = docs.map((a, i) =>
         `<div class="file-item" id="docExist-${i}">
           <span>📄</span><span class="file-name">${a.nome}</span>
