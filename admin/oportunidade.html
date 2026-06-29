@@ -268,7 +268,9 @@
       // Observações
       if (f['Observações']) {
         document.getElementById('cardObs').style.display = '';
-        document.getElementById('obsTexto').textContent  = f['Observações'];
+        const obsLimpo = f['Observações'].replace(/^(Finalidades:.*?(\n\n|$))+/s, '').trim();
+        document.getElementById('obsTexto').textContent  = obsLimpo;
+        if (!obsLimpo) document.getElementById('cardObs').style.display = 'none';
       }
 
       // Pipeline
