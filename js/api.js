@@ -70,8 +70,7 @@ async function uploadCloudinary(file, folder = "modo") {
   fd.append("upload_preset", CONFIG.cloudinary.preset);
   fd.append("folder", folder);
 
-  const resourceType = (folder === 'modo-docs' || folder === 'modo-kmz') ? 'raw' : 'auto';
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${CONFIG.cloudinary.cloud}/${resourceType}/upload`, {
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CONFIG.cloudinary.cloud}/auto/upload`, {
     method: "POST", body: fd,
   });
   if (!res.ok) throw new Error("Falha no upload do arquivo");
