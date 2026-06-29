@@ -223,6 +223,14 @@
         } catch { /* link inválido */ }
       }
     });
+
+    // Ajusta zoom para cobrir todos os marcadores
+    if (marcadores.length === 1) {
+      map.setView(marcadores[0].getLatLng(), 13);
+    } else if (marcadores.length > 1) {
+      const grupo = L.featureGroup(marcadores);
+      map.fitBounds(grupo.getBounds(), { padding: [48, 48] });
+    }
   }
 
   function renderLista(ops) {
