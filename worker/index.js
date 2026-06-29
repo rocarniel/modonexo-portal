@@ -812,8 +812,9 @@ export default {
       if (method === "PATCH" && user.admin) {
         const body   = await request.json();
         const campos = {};
-        if (body.status) campos["Status"]               = body.status;
-        if (body.motivo) campos["Motivo (status negativo)"] = body.motivo;
+        if (body.status)   campos["Status"]                    = body.status;
+        if (body.motivo)   campos["Motivo (status negativo)"]  = body.motivo;
+        if (body.arquivos) campos["Arquivos (JSON)"]           = JSON.stringify(body.arquivos);
         const data = await airtable(env, "PATCH", TBL.oportunidades, id, {}, { fields: campos });
         return corsResponse(data);
       }
