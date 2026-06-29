@@ -167,6 +167,7 @@ function camposOportunidade(payload, parceiro) {
     "Token de compartilhamento": payload.token      || gerarToken(),
     "Data de entrada":          new Date().toISOString().split("T")[0],
     "E-mail do solicitante":    payload.emailParceiro || null,
+    "Arquivos (JSON)":          payload.arquivos?.length ? JSON.stringify(payload.arquivos) : null,
   };
 
   if (parceiro) campos["Parceiro"] = [parceiro.id];
@@ -795,6 +796,15 @@ export default {
         // Verificar acesso: parceiro só pode ver a própria
         if (!user.admin && data.fields["E-mail do solicitante"] !== user.email) {
           return errorResponse("Acesso negado", 403);
+        }
+        // Desserializar arquivos Cloudinary
+        const arquivosJson = data.fields["Arquivos (JSON)"];
+        if (arquivosJson) {
+          try {
+            const todos = JSON.parse(arquivosJson);
+            data.fields._imagens    = todos.filter(a => a.tipo === "imagem").map(a => a.url);
+            data.fields._documentos = todos.filter(a => a.tipo === "documento");
+          } catch { /* JSON inválido — ignora */ }
         }
         return corsResponse(data);
       }
