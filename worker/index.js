@@ -111,22 +111,44 @@ function gerarToken() {
   return Array.from(arr).map(b => b.toString(36)).join("").slice(0, 16);
 }
 
+// ── Mapeamentos form → Airtable ──────────────────
+const TIPO_IMOVEL_MAP = {
+  "Casa":       "Casa residencial",
+  "Terreno":    "Terreno/Lote urbano",
+  "Comercial":  "Sala comercial",
+  "Rural":      "Gleba rural",
+  "Galpão":     "Sala comercial", // fallback até adicionar no Airtable
+};
+const ESTADO_MAP = {
+  AC:"Acre",AL:"Alagoas",AP:"Amapá",AM:"Amazonas",BA:"Bahia",CE:"Ceará",
+  DF:"Distrito Federal",ES:"Espírito Santo",GO:"Goiás",MA:"Maranhão",
+  MT:"Mato Grosso",MS:"Mato Grosso do Sul",MG:"Minas Gerais",PA:"Pará",
+  PB:"Paraíba",PR:"Paraná",PE:"Pernambuco",PI:"Piauí",RJ:"Rio de Janeiro",
+  RN:"Rio Grande do Norte",RS:"Rio Grande do Sul",RO:"Rondônia",
+  RR:"Roraima",SC:"Santa Catarina",SP:"São Paulo",SE:"Sergipe",TO:"Tocantins",
+};
+// Opções válidas no singleSelect "Tipo de negócio" do Airtable
+const FINALIDADE_VALIDA = new Set(["Venda","Locação","Permuta","Parceria"]);
+
 // ── Montar campos de Oportunidade para Airtable ──
 function camposOportunidade(payload, parceiro) {
-  const titulo = [
-    payload.tipo,
-    payload.municipio,
-    payload.estado,
-  ].filter(Boolean).join(" · ");
+  const tipoMapeado   = TIPO_IMOVEL_MAP[payload.tipo] || payload.tipo;
+  const estadoMapeado = ESTADO_MAP[payload.estado]    || payload.estado;
+
+  // Pega a primeira finalidade válida para o singleSelect
+  const finalidades = (payload.finalidade || "").split(", ").map(f => f.trim());
+  const finalidadePrincipal = finalidades.find(f => FINALIDADE_VALIDA.has(f)) || null;
+
+  const titulo = [tipoMapeado, payload.municipio, payload.estado].filter(Boolean).join(" · ");
 
   const campos = {
     "Título":                   titulo,
-    "Tipo de imóvel":           payload.tipo        || null,
-    "Tipo de negócio":          payload.finalidade  || null,
+    "Tipo de imóvel":           tipoMapeado    || null,
+    "Tipo de negócio":          finalidadePrincipal,
     "CEP":                      payload.cep         || null,
     "Endereço":                 payload.endereco    || null,
     "Município":                payload.municipio   || null,
-    "Estado":                   payload.estado      || null,
+    "Estado":                   estadoMapeado  || null,
     "Área total (m²)":          payload.area          || null,
     "Área privativa (m²)":      payload.areaPrivativa || null,
     "Valor pretendido (R$)":    payload.valor       || null,
@@ -134,7 +156,10 @@ function camposOportunidade(payload, parceiro) {
     "Detalhes da comissão":     payload.detComissao || null,
     "Link de vídeo":            payload.videoLink   || null,
     "Link KMZ/KML":             payload.kmlLink     || null,
-    "Observações":              payload.observacoes || null,
+    "Observações":              [
+      finalidades.length > 1 ? `Finalidades: ${finalidades.join(", ")}` : null,
+      payload.observacoes || null,
+    ].filter(Boolean).join("\n\n") || null,
     "Latitude":                 payload.lat         || null,
     "Longitude":                payload.lng         || null,
     "Status":                   "Recebido",
@@ -268,6 +293,18 @@ export default {
   },
 
   async fetch(request, env) {
+    try {
+      return await this._handle(request, env);
+    } catch (err) {
+      console.error("Worker unhandled:", err);
+      return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
+        status: 500,
+        headers: { ...CORS, "Content-Type": "application/json" },
+      });
+    }
+  },
+
+  async _handle(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS });
     }
