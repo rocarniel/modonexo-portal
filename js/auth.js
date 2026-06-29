@@ -30,7 +30,7 @@ function getCurrentUser() { return _userProfile; }
 
 async function getIdToken() {
   if (!_currentUser) return null;
-  return _currentUser.getIdToken(true); // forceRefresh — renova automaticamente
+  return _currentUser.getIdToken(); // SDK renova automaticamente quando necessário
 }
 
 async function login(email, password) {
