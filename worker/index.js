@@ -152,6 +152,7 @@ function camposOportunidade(payload, parceiro) {
 
 // ── Enviar email via Resend ───────────────────────
 async function sendEmail(env, { to, subject, html }) {
+  console.log("sendEmail → para:", to, "| assunto:", subject);
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -165,9 +166,11 @@ async function sendEmail(env, { to, subject, html }) {
       html,
     }),
   });
+  const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = await res.text();
-    console.error("Resend error:", err);
+    console.error("Resend error:", res.status, JSON.stringify(body));
+  } else {
+    console.log("Resend OK:", body.id);
   }
 }
 
@@ -424,10 +427,11 @@ export default {
 
       if (email) {
         await criarUsuarioFirebase(env, email, "Modo@2030");
-        await enviarResetSenha(env, email);
+        // Não enviamos o reset automaticamente — o link no email já leva direto ao modal preenchido
 
         // Email de boas-vindas ao parceiro
         const primeiroNome = nome.split(" ")[0];
+        const urlDefinirSenha = `https://modonexo.com.br/index.html?resetSenha=1&email=${encodeURIComponent(email)}`;
         await sendEmail(env, {
           to: email,
           subject: "Bem-vindo ao Portal MODOnexo! Seu acesso foi aprovado ✅",
@@ -453,9 +457,9 @@ export default {
                   <li><strong>Portal:</strong> <a href="https://modonexo.com.br" style="color:#1a1a2e">modonexo.com.br</a></li>
                   <li><strong>E-mail:</strong> ${email}</li>
                 </ul>
-                <p style="color:#64748b;font-size:14px">Para definir sua senha de acesso, clique no botão abaixo. O link é válido por 1 hora.</p>
+                <p style="color:#64748b;font-size:14px">Clique no botão abaixo para criar sua senha. Você receberá um link de acesso imediatamente no seu e-mail.</p>
                 <div style="text-align:center;margin:24px 0">
-                  <a href="https://modonexo.com.br/index.html?resetSenha=1"
+                  <a href="${urlDefinirSenha}"
                      style="background:#1a1a2e;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">
                     🔑 Definir minha senha
                   </a>
@@ -594,6 +598,42 @@ export default {
               <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
                 MODO Planejamento Imobiliário · Portal MODOnexo
               </p>
+            </div>
+          </div>`,
+      });
+
+      // Email direto para o admin — não depende de webhook
+      const recordId   = record.id;
+      const urlAprovar  = `${WORKER_URL}/aprovar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
+      const urlRejeitar = `${WORKER_URL}/rejeitar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
+      const creciNumero = (body.creci || "").replace(/\D/g, "");
+      const urlCreci    = creciNumero ? `https://www.creci-sc.gov.br/corretor/consultar?creci=${creciNumero}` : null;
+      await sendEmail(env, {
+        to: "modogestaonexo@gmail.com",
+        subject: "Novo parceiro aguardando aprovação — Portal MODO",
+        html: `
+          <div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+            <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
+              <h2 style="color:#fff;margin:0;font-size:18px">Novo parceiro cadastrado</h2>
+            </div>
+            <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+              <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+                <tr><td style="padding:8px 0;color:#64748b;width:90px">Nome</td><td style="padding:8px 0;font-weight:600">${body.nome}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">E-mail</td><td style="padding:8px 0">${body.email}</td></tr>
+                <tr><td style="padding:8px 0;color:#64748b">WhatsApp</td><td style="padding:8px 0">${body.whatsapp || "—"}</td></tr>
+                <tr>
+                  <td style="padding:8px 0;color:#64748b">CRECI</td>
+                  <td style="padding:8px 0">
+                    <strong>${body.creci || "—"}</strong>
+                    ${urlCreci ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no CRECI-SC</a>` : ""}
+                  </td>
+                </tr>
+              </table>
+              <div style="margin-top:8px">
+                <a href="${urlAprovar}" style="background:#16a34a;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">✅ Aprovar</a>
+                &nbsp;&nbsp;
+                <a href="${urlRejeitar}" style="background:#dc2626;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">❌ Rejeitar</a>
+              </div>
             </div>
           </div>`,
       });
