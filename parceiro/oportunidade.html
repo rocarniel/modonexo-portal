@@ -18,6 +18,22 @@
     .lightbox.hidden { display: none; }
     .lightbox img { max-width: 95vw; max-height: 90vh; border-radius: 8px; }
     .lightbox-close { position: absolute; top: 16px; right: 20px; color: #fff; font-size: 32px; cursor: pointer; background: none; border: none; }
+    .doc-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+    .doc-card { width: 110px; cursor: pointer; text-align: center; }
+    .doc-card:hover .doc-thumb { transform: scale(1.04); box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+    .doc-thumb { width: 110px; height: 140px; border-radius: 8px; border: 1.5px solid var(--border); overflow: hidden; background: #f1f5f9; display: flex; align-items: center; justify-content: center; transition: transform .2s, box-shadow .2s; }
+    .doc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .doc-thumb .doc-icon { font-size: 40px; }
+    .doc-name { font-size: 11px; color: var(--text-muted); margin-top: 5px; word-break: break-all; line-height: 1.3; }
+    .docviewer { position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 10000; display: flex; flex-direction: column; }
+    .docviewer.hidden { display: none; }
+    .docviewer-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; background: rgba(0,0,0,.6); }
+    .docviewer-bar span { color: #fff; font-size: 14px; font-weight: 600; }
+    .docviewer-bar div { display: flex; gap: 10px; }
+    .docviewer-body { flex: 1; overflow: hidden; }
+    .docviewer-body iframe { width: 100%; height: 100%; border: none; }
+    .docviewer-body img  { max-width: 100%; max-height: 100%; margin: auto; display: block; object-fit: contain; height: 100%; }
+    .docviewer-body .no-preview { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #fff; gap: 12px; }
   </style>
 </head>
 <body>
@@ -110,6 +126,17 @@
   <img id="lightboxImg" src="">
 </div>
 
+<div class="docviewer hidden" id="docviewer">
+  <div class="docviewer-bar">
+    <span id="dvNome">—</span>
+    <div>
+      <a id="dvBaixar" href="#" target="_blank" class="btn btn-sm btn-outline" style="color:#fff;border-color:#fff">⬇️ Baixar</a>
+      <button onclick="fecharDocViewer()" style="background:none;border:1px solid #fff;color:#fff;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px">✕ Fechar</button>
+    </div>
+  </div>
+  <div class="docviewer-body" id="dvBody"></div>
+</div>
+
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202606291610"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202606291610"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202606291610"></script>
@@ -173,9 +200,8 @@
       // Docs
       if (f['_documentos']?.length) {
         document.getElementById('cardDocs').style.display = '';
-        document.getElementById('listaDocs').innerHTML    = f['_documentos'].map(d =>
-          `<div class="file-item"><span>📄</span><span class="file-name">${d.nome}</span><a href="${d.url}" target="_blank" class="btn btn-sm btn-outline">Baixar</a></div>`
-        ).join('');
+        document.getElementById('listaDocs').innerHTML = '<div class="doc-grid">' +
+          f['_documentos'].map(d => docCard(d)).join('') + '</div>';
       }
 
       // Vídeo
@@ -255,6 +281,57 @@
     document.getElementById('lightbox').classList.remove('hidden');
   }
   function fecharLightbox() { document.getElementById('lightbox').classList.add('hidden'); }
+
+  function extDoc(nome) { return (nome.split('.').pop() || '').toLowerCase(); }
+
+  function docThumbHtml(d) {
+    const ext = extDoc(d.nome);
+    const imgs = ['jpg','jpeg','png','gif','webp','svg'];
+    if (imgs.includes(ext)) {
+      return `<img src="${d.url}" alt="${d.nome}" onerror="this.parentElement.innerHTML='<span class=doc-icon>🖼️</span>'">`;
+    }
+    if (ext === 'pdf') {
+      const thumb = d.url.replace('/upload/', '/upload/pg_1,w_220,c_limit/').replace(/\.pdf$/i, '.jpg');
+      return `<img src="${thumb}" alt="${d.nome}" onerror="this.parentElement.innerHTML='<span class=doc-icon>📄</span>'">`;
+    }
+    const icons = { doc:'📝', docx:'📝', xls:'📊', xlsx:'📊', ppt:'📋', pptx:'📋', zip:'🗜️', kmz:'🗺️', kml:'🗺️' };
+    return `<span class="doc-icon">${icons[ext] || '📎'}</span>`;
+  }
+
+  function docCard(d) {
+    return `<div class="doc-card" onclick="abrirDocViewer(${JSON.stringify(d)})">
+      <div class="doc-thumb">${docThumbHtml(d)}</div>
+      <div class="doc-name">${d.nome}</div>
+    </div>`;
+  }
+
+  function abrirDocViewer(d) {
+    const ext  = extDoc(d.nome);
+    const imgs = ['jpg','jpeg','png','gif','webp','svg'];
+    document.getElementById('dvNome').textContent = d.nome;
+    document.getElementById('dvBaixar').href      = d.url;
+    let html;
+    if (imgs.includes(ext)) {
+      html = `<img src="${d.url}" alt="${d.nome}" style="max-width:100%;max-height:100%;margin:auto;display:block;object-fit:contain;height:100%">`;
+    } else if (ext === 'pdf') {
+      html = `<iframe src="${d.url}" title="${d.nome}"></iframe>`;
+    } else {
+      html = `<div class="no-preview"><span style="font-size:64px">📎</span><p style="font-size:16px">${d.nome}</p><p style="font-size:13px;opacity:.7">Visualização não disponível para este formato</p><a href="${d.url}" target="_blank" class="btn btn-gold" style="margin-top:8px">⬇️ Baixar arquivo</a></div>`;
+    }
+    document.getElementById('dvBody').innerHTML = html;
+    document.getElementById('docviewer').classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function fecharDocViewer() {
+    document.getElementById('docviewer').classList.add('hidden');
+    document.getElementById('dvBody').innerHTML = '';
+    document.body.style.overflow = '';
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { fecharLightbox(); fecharDocViewer(); }
+  });
 </script>
 </body>
 </html>
