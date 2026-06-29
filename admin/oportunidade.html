@@ -355,8 +355,8 @@
 
   async function carregarLeads(opId) {
     try {
-      const data  = await API.leads.listar();
-      const leads = (data.records || []).filter(l => l.fields['ID da oportunidade'] === opId);
+      const data  = await apiRequest("GET", "/leads?opId=" + opId);
+      const leads = data.records || [];
       const el    = document.getElementById('leadsResumo');
       if (!leads.length) { el.textContent = 'Nenhum acesso registrado ainda.'; return; }
       el.innerHTML = `<strong>${leads.length} acesso(s) registrado(s)</strong><div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">` +
