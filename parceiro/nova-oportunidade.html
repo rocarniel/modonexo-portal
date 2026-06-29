@@ -402,10 +402,23 @@
     zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
     zone.addEventListener('drop', e => {
       e.preventDefault(); zone.classList.remove('drag-over');
-      const inputId = id === 'zoneImagens' ? 'inputImagens' : 'inputDocs';
-      const arr = id === 'zoneImagens' ? imagensFiles : docsFiles;
-      Array.from(e.dataTransfer.files).forEach(f => arr.push(f));
-      id === 'zoneImagens' ? renderImagePreviews() : renderDocList();
+      if (id === 'zoneKmz') {
+        kmzFile = e.dataTransfer.files[0] || null;
+        const el = document.getElementById('listKmz');
+        el.innerHTML = kmzFile ? `
+          <div class="file-item">
+            <span>🗺️</span>
+            <span class="file-name">${kmzFile.name}</span>
+            <span class="file-size">${(kmzFile.size/1024/1024).toFixed(1)} MB</span>
+            <button type="button" class="file-remove" onclick="kmzFile=null;document.getElementById('listKmz').innerHTML=''">✕</button>
+          </div>` : '';
+      } else if (id === 'zoneImagens') {
+        Array.from(e.dataTransfer.files).forEach(f => imagensFiles.push(f));
+        renderImagePreviews();
+      } else {
+        Array.from(e.dataTransfer.files).forEach(f => docsFiles.push(f));
+        renderDocList();
+      }
     });
   });
 
