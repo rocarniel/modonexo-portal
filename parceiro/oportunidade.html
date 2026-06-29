@@ -369,8 +369,8 @@
     if (imgs.includes(ext)) {
       html = `<img src="${d.url}" alt="${d.nome}" style="max-width:100%;max-height:100%;margin:auto;display:block;object-fit:contain;height:100%">`;
     } else if (ext === 'pdf') {
-      const viewer = 'https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(d.url);
-      html = `<iframe src="${viewer}" title="${d.nome}"></iframe>`;
+      html = `<embed src="${d.url}#toolbar=1&navpanes=0" type="application/pdf" style="width:100%;height:100%;border:none">
+        <p style="color:#fff;text-align:center;padding:20px">Seu browser não renderizou o PDF. <a href="${d.url}" target="_blank" style="color:var(--gold)">Clique aqui para abrir</a></p>`;
     } else {
       html = `<div class="no-preview"><span style="font-size:64px">📎</span><p style="font-size:16px">${d.nome}</p><p style="font-size:13px;opacity:.7">Visualização não disponível para este formato</p><a href="${d.url}" target="_blank" class="btn btn-gold" style="margin-top:8px">⬇️ Baixar arquivo</a></div>`;
     }
