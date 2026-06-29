@@ -144,6 +144,10 @@
           <!-- KMZ/KML -->
           <div class="form-group" id="grupo-kmz" style="display:none">
             <label>🗂️ Arquivo KMZ/KML <span style="font-weight:400;font-size:0.82em;color:#666">(delimitação da área no mapa)</span></label>
+            <div id="kmzExistenteContainer" style="display:none;margin-bottom:12px">
+              <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Arquivo já salvo — clique em Remover para substituir:</p>
+              <div id="listaKmzExistente"></div>
+            </div>
             <div class="upload-zone" id="zoneKmz" onclick="document.getElementById('inputKmz').click()">
               <div class="icon">🗺️</div>
               <p><strong>Clique para selecionar</strong> o arquivo KMZ ou KML</p>
@@ -253,6 +257,7 @@
 
   // Arquivos já existentes (carregados na edição)
   let arquivosExistentes = [];
+  let kmlLinkExistente = '';
 
   let userProfile = null;
   requireAuth(origemMODO).then(async p => {
@@ -337,6 +342,10 @@
       }
       renderArquivosExistentes();
 
+      // KMZ/KML já salvo
+      kmlLinkExistente = f['Link KMZ/KML'] || '';
+      renderKmzExistente();
+
     } catch (err) {
       showToast('Erro ao carregar oportunidade: ' + err.message, 'error');
     }
@@ -383,6 +392,27 @@
     const toRemove = docs[i];
     arquivosExistentes = arquivosExistentes.filter(a => a !== toRemove);
     renderArquivosExistentes();
+  };
+
+  function renderKmzExistente() {
+    const container = document.getElementById('kmzExistenteContainer');
+    const lista = document.getElementById('listaKmzExistente');
+    if (kmlLinkExistente && container && lista) {
+      const nome = kmlLinkExistente.split('/').pop();
+      lista.innerHTML = `
+        <div class="file-item" style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px">
+          <span>🗺️</span>
+          <span class="file-name" style="flex:1;font-size:13px">${nome}</span>
+          <button type="button" onclick="removeKmzExistente()" class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);white-space:nowrap">✕ Remover</button>
+        </div>`;
+      container.style.display = 'block';
+    } else if (container) {
+      container.style.display = 'none';
+    }
+  }
+  window.removeKmzExistente = () => {
+    kmlLinkExistente = '';
+    renderKmzExistente();
   };
 
   // ── Mapa com pino ───────────────────────────────
@@ -640,7 +670,7 @@
       }
 
       // Upload KMZ/KML
-      let kmlLinkFinal = '';
+      let kmlLinkFinal = kmlLinkExistente;
       if (kmzFile) {
         try {
           const res = await uploadCloudinary(kmzFile, 'modo-kmz');
