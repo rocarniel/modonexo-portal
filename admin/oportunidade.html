@@ -291,7 +291,7 @@
       }).join('');
 
       // Parceiro
-      nomeParceiro = (f['Nome Completo (from Parceiros)'] || [''])[0] || 'MODOnexo';
+      nomeParceiro = 'MODOnexo';
       document.getElementById('parceiroInfo').innerHTML = `
         <strong>${nomeParceiro}</strong><br>
         <span style="color:var(--text-muted)">${f['E-mail do solicitante'] || '—'}</span>`;
