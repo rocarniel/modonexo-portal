@@ -1,5 +1,4 @@
 // ===== MODO Nexo — Configuração =====
-// Substitua os valores COLE_AQUI_* após seguir o SETUP.md
 
 const CONFIG = {
   // Firebase (obtenha em console.firebase.google.com)
@@ -26,9 +25,6 @@ const CONFIG = {
     "rocarniel@gmail.com",
     "olegarioadvogado@gmail.com",
   ],
-
-  // Google Drive — pasta KMZ/KML compartilhada
-  driveFolderKmz: "1iMz3FwYSLZrgSwtYsMVsgxoGrSaLZxJB",
 
   // Limites de arquivo
   limits: {
