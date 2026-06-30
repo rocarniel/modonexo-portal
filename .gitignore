@@ -1,5 +1,7 @@
 .claude/
+.wrangler/
 worker/.wrangler/
+.DS_Store
 *.png
 *.jpg
 SETUP.md
