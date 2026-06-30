@@ -163,9 +163,10 @@ function renderChat(box, msgs, eu) {
     const hora = m.fields["Data e hora"]
       ? new Date(m.fields["Data e hora"]).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
       : "";
-    return `<div style="align-self:${mine ? "flex-end" : "flex-start"};max-width:82%;background:${mine ? "var(--navy)" : "#e2e8f0"};color:${mine ? "#fff" : "#1e293b"};padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word">
-      <div>${escapeHtml(m.fields["Mensagem"])}</div>
-      <div style="font-size:10px;opacity:.7;margin-top:4px;text-align:right">${de} · ${hora}</div>
+    const corner = mine ? "border-bottom-right-radius:4px" : "border-bottom-left-radius:4px";
+    return `<div style="align-self:${mine ? "flex-end" : "flex-start"};width:fit-content;max-width:78%;background:${mine ? "var(--navy)" : "#eef1f5"};color:${mine ? "#fff" : "#1e293b"};padding:6px 10px;border-radius:14px;${corner};font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 1.5px rgba(0,0,0,.08)">
+      ${escapeHtml(m.fields["Mensagem"])}
+      <span style="font-size:10px;opacity:.6;margin-left:8px;white-space:nowrap">${hora}</span>
     </div>`;
   }).join("");
   box.scrollTop = box.scrollHeight;
