@@ -350,8 +350,8 @@
       return `<img src="${d.url}" alt="${d.nome}" onerror="this.parentElement.innerHTML='<span class=doc-icon>🖼️</span>'">`;
     }
     if (ext === 'pdf') {
-      const thumb = d.url.replace('/upload/', '/upload/pg_1,w_220,c_limit/').replace(/\.pdf$/i, '.jpg');
-      return `<img src="${thumb}" alt="${d.nome}" onerror="this.parentElement.innerHTML='<span class=doc-icon>📄</span>'">`;
+      const thumbSrc = d.thumbUrl || d.url.replace('/upload/', '/upload/pg_1,w_220,c_limit/').replace(/\.pdf$/i, '.jpg');
+      return `<img src="${thumbSrc}" alt="${d.nome}" onerror="this.parentElement.innerHTML='<span class=doc-icon>📄</span>'">`;
     }
     const icons = { doc:'📝', docx:'📝', xls:'📊', xlsx:'📊', ppt:'📋', pptx:'📋', zip:'🗜️', kmz:'🗺️', kml:'🗺️' };
     return `<span class="doc-icon">${icons[ext] || '📎'}</span>`;

@@ -664,8 +664,14 @@
       const urlsDocs = [];
       for (const f of docsFiles) {
         try {
-          const res = await uploadCloudinary(f, 'modo-docs');
-          urlsDocs.push({ url: res.secure_url, nome: f.name, tipo: 'documento' });
+          const isPdf = f.name.toLowerCase().endsWith('.pdf');
+          if (isPdf) {
+            const res = await uploadPdfDual(f, 'modo-docs');
+            urlsDocs.push({ url: res.secure_url, thumbUrl: res.thumbUrl, nome: f.name, tipo: 'documento' });
+          } else {
+            const res = await uploadCloudinary(f, 'modo-docs');
+            urlsDocs.push({ url: res.secure_url, nome: f.name, tipo: 'documento' });
+          }
         } catch (e) { throw new Error('Upload documento "' + f.name + '": ' + e.message); }
       }
 
