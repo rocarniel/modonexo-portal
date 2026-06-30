@@ -50,8 +50,10 @@ const API = {
   },
 
   mensagens: {
-    listar: (opId)        => apiRequest("GET", "/mensagens?opId=" + opId),
-    enviar: (opId, texto) => apiRequest("POST", "/mensagens", { opId, texto }),
+    listar:      (opId)        => apiRequest("GET",  "/mensagens?opId=" + opId),
+    enviar:      (opId, texto) => apiRequest("POST", "/mensagens", { opId, texto }),
+    marcarLidas: (opId)        => apiRequest("POST", "/mensagens/ler", { opId }),
+    naoLidas:    ()            => apiRequest("GET",  "/mensagens/nao-lidas"),
   },
 
   publico: {

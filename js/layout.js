@@ -12,6 +12,7 @@ function renderSidebar(navItems, activePage) {
           ? `<div class="nav-section-label">${item.label}</div>`
           : `<a href="${item.href}" class="nav-item${activePage === item.href ? ' active' : ''}">
                <span class="icon">${item.icon}</span>${item.label}
+               ${item.badge ? `<span class="nav-badge hidden" id="${item.badge}"></span>` : ''}
              </a>`
         ).join('')}
       </nav>
@@ -48,12 +49,13 @@ function closeSidebar() {
 }
 
 const NAV_PARCEIRO = [
-  { icon: '🏠', label: 'Dashboard',         href: '/parceiro/dashboard.html' },
-  { icon: '➕', label: 'Nova Oportunidade',  href: '/parceiro/nova-oportunidade.html' },
-  { icon: '📋', label: 'Minhas Oportunidades', href: '/parceiro/oportunidades.html' },
+  { icon: '🏠', label: 'Dashboard',            href: '/parceiro/dashboard.html' },
+  { icon: '➕', label: 'Nova Oportunidade',     href: '/parceiro/nova-oportunidade.html' },
+  { icon: '📋', label: 'Minhas Oportunidades',  href: '/parceiro/oportunidades.html' },
   { divider: true, label: 'Comunicação' },
-  { icon: '📢', label: 'Avisos',             href: '/parceiro/avisos.html' },
-  { icon: '🔍', label: 'Demandas MODO',      href: '/parceiro/demandas.html' },
+  { icon: '💬', label: 'Mensagens',             href: '/parceiro/mensagens.html', badge: 'badgeMensagens' },
+  { icon: '📢', label: 'Avisos',                href: '/parceiro/avisos.html' },
+  { icon: '🔍', label: 'Demandas MODO',         href: '/parceiro/demandas.html' },
 ];
 
 const NAV_ADMIN = [
@@ -61,11 +63,23 @@ const NAV_ADMIN = [
   { icon: '📋', label: 'Oportunidades',       href: '/admin/oportunidades.html' },
   { divider: true, label: 'Gestão' },
   { icon: '👥', label: 'Parceiros',           href: '/admin/parceiros.html' },
-  { icon: '📢', label: 'Avisos',             href: '/admin/avisos.html' },
-  { icon: '🔍', label: 'Demandas',           href: '/admin/demandas.html' },
-  { icon: '🎯', label: 'Leads',              href: '/admin/leads.html' },
+  { icon: '💬', label: 'Mensagens',           href: '/admin/mensagens.html', badge: 'badgeMensagens' },
+  { icon: '📢', label: 'Avisos',              href: '/admin/avisos.html' },
+  { icon: '🔍', label: 'Demandas',            href: '/admin/demandas.html' },
+  { icon: '🎯', label: 'Leads',               href: '/admin/leads.html' },
   { divider: true, label: 'Captação Interna' },
-  { icon: '➕', label: 'Nova (MODO)',         href: '/parceiro/nova-oportunidade.html?origem=MODO' },
+  { icon: '➕', label: 'Nova (MODO)',          href: '/parceiro/nova-oportunidade.html?origem=MODO' },
   { divider: true, label: '' },
-  { icon: '📊', label: 'Métricas',           href: '/admin/metricas.html' },
+  { icon: '📊', label: 'Métricas',            href: '/admin/metricas.html' },
 ];
+
+function atualizarBadgeChat(count) {
+  const el = document.getElementById('badgeMensagens');
+  if (!el) return;
+  if (count > 0) {
+    el.textContent = count > 99 ? '99+' : String(count);
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}

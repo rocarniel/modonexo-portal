@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MODOnexo — Minhas Oportunidades</title>
-  <link rel="stylesheet" href="../css/style.css?v=202606291610">
+  <link rel="stylesheet" href="../css/style.css?v=202606300001">
 </head>
 <body>
 <div class="app-layout">
@@ -30,9 +30,12 @@
         <select id="filtroTipo" onchange="filtrar()">
           <option value="">Todos os tipos</option>
           <option>Área para loteamento</option>
-          <option>Apartamento</option><option>Casa</option>
-          <option>Terreno</option><option>Comercial</option>
-          <option>Galpão</option><option>Rural</option>
+          <option>Apartamento</option>
+          <option>Casa residencial</option>
+          <option>Terreno/Lote urbano</option>
+          <option>Sala comercial</option>
+          <option>Galpão</option>
+          <option>Gleba rural</option>
         </select>
         <input type="text" id="filtroTexto" placeholder="🔍 Buscar…" oninput="filtrar()" style="min-width:180px">
       </div>
@@ -62,12 +65,12 @@
 </div>
 
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202606291610"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202606291610"></script>
-<script src="../js/config.js?v=202606291610"></script>
-<script src="../js/auth.js?v=202606291610"></script>
-<script src="../js/api.js?v=202606291610"></script>
-<script src="../js/layout.js?v=202606291610"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202606300001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202606300001"></script>
+<script src="../js/config.js?v=202606300001"></script>
+<script src="../js/auth.js?v=202606300001"></script>
+<script src="../js/api.js?v=202606300001"></script>
+<script src="../js/layout.js?v=202606300001"></script>
 <script>
   firebase.initializeApp(CONFIG.firebase);
   document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_PARCEIRO, '/parceiro/oportunidades.html');

@@ -73,6 +73,11 @@ function renderUserChip(profile) {
   if (elAvatar) elAvatar.textContent = inicial;
   if (elNome)   elNome.textContent   = profile.nome || profile.email;
   if (elRole)   elRole.textContent   = profile.admin ? "Admin / Gestor" : "Parceiro";
+
+  // Badge de mensagens não-lidas (fire-and-forget, disponível em todas as páginas com sidebar)
+  if (typeof API !== "undefined" && typeof atualizarBadgeChat === "function") {
+    API.mensagens.naoLidas().then(d => atualizarBadgeChat(d.count)).catch(() => {});
+  }
 }
 
 // Marca item ativo na nav

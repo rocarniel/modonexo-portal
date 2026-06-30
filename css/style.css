@@ -110,6 +110,8 @@ img { max-width: 100%; }
 }
 
 .nav-item .icon { font-size: 18px; width: 20px; text-align: center; }
+.nav-badge { margin-left:auto; background:#ef4444; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 7px; line-height:1.6; }
+.nav-badge.hidden { display:none; }
 
 .sidebar-footer {
   padding: 16px 20px;

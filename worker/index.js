@@ -215,6 +215,10 @@ async function criarUsuarioFirebase(env, email, senha) {
   return true;
 }
 
+function esc(s) {
+  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
 // ── URLs de consulta CRECI por UF ────────────────────
 const URL_CONSULTA_CRECI = "https://imobisec.com.br/busca";
 
@@ -359,7 +363,7 @@ export default {
                       <td style="padding:8px 0;color:#64748b">CRECI</td>
                       <td style="padding:8px 0">
                         <strong>${creci}</strong>
-                        ${creciNumero ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no IMOBISEC</a>` : ""}
+                        ${creci ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no IMOBISEC</a>` : ""}
                       </td>
                     </tr>
                   </table>
@@ -722,26 +726,18 @@ export default {
         if (p) parceiro = { nome: p.fields["Nome Completo"], whatsapp: p.fields["WhatsApp"] };
       }
 
-      // Oportunidades internas da MODO não têm link público
-      if (op.fields["Origem"] === "MODO") return errorResponse("Link não disponível", 403);
-
-      // Buscar arquivos da tabela Documentos
-      const arquivos = { imagens: [], documentos: [] };
-      if (op.fields["Documentos"]?.length) {
-        const docsData = await airtable(env, "GET", TBL.documentos, "", {
-          filterByFormula: `RECORD_ID() = "${op.fields["Documentos"][0]}"`,
-          fields: ["Categoria", "Arquivo"],
-        });
-        // Simplificação: apenas retornar URLs se disponíveis
+      // Desserializar arquivos para a página pública
+      const fields = { ...op.fields, _parceiro: parceiro };
+      const arquivosJson = op.fields["Arquivos (JSON)"];
+      if (arquivosJson) {
+        try {
+          const todos = JSON.parse(arquivosJson);
+          fields._imagens    = todos.filter(a => a.tipo === "imagem").map(a => a.url);
+          fields._documentos = todos.filter(a => a.tipo === "documento");
+        } catch { /* JSON inválido — ignora */ }
       }
 
-      return corsResponse({
-        id: op.id,
-        fields: {
-          ...op.fields,
-          _parceiro: parceiro,
-        },
-      });
+      return corsResponse({ id: op.id, fields });
     }
 
     // ── Autenticação obrigatória abaixo ────────────
@@ -1065,14 +1061,106 @@ export default {
       }
       await airtable(env, "POST", TBL.mensagens, "", {}, {
         fields: {
-          "Mensagem":      body.texto.trim(),
-          "Oportunidade":  [body.opId],
-          "De":            user.admin ? "Admin" : "Parceiro",
-          "Data e hora":   new Date().toISOString(),
-          "Lida":          false,
+          "Mensagem":     body.texto.trim(),
+          "Oportunidade": [body.opId],
+          "De":           user.admin ? "Admin" : "Parceiro",
+          "Data e hora":  new Date().toISOString(),
+          "Lida":         false,
         },
       });
+
+      // Notificar a outra parte por e-mail
+      const titulo = op.fields["Título"] || "oportunidade";
+      const texto  = esc(body.texto.trim());
+      if (user.admin) {
+        const emailParceiro = op.fields["E-mail do solicitante"] || "";
+        if (emailParceiro) {
+          const link = `https://modonexo.com.br/parceiro/oportunidade.html?id=${body.opId}`;
+          await sendEmail(env, {
+            to: emailParceiro,
+            subject: `Nova mensagem sobre "${titulo}" — Portal MODOnexo`,
+            html: `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+              <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
+                <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem no portal</h2>
+              </div>
+              <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+                <p>Você recebeu uma mensagem sobre <strong>${esc(titulo)}</strong>:</p>
+                <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #1a1a2e;white-space:pre-wrap;font-size:15px">${texto}</div>
+                <a href="${link}" style="background:#1a1a2e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Ver no portal →</a>
+              </div>
+            </div>`,
+          });
+        }
+      } else {
+        const link = `https://modonexo.com.br/admin/oportunidade.html?id=${body.opId}`;
+        await sendEmail(env, {
+          to: "modogestaonexo@gmail.com",
+          subject: `Mensagem de parceiro sobre "${titulo}"`,
+          html: `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+            <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
+              <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem de parceiro</h2>
+            </div>
+            <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+              <p>Mensagem de <strong>${esc(user.email)}</strong> sobre <strong>${esc(titulo)}</strong>:</p>
+              <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #c09a5a;white-space:pre-wrap;font-size:15px">${texto}</div>
+              <a href="${link}" style="background:#1a1a2e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Ver no portal →</a>
+            </div>
+          </div>`,
+        });
+      }
+
       return corsResponse({ ok: true });
+    }
+
+    // Marcar mensagens como lidas (batch PATCH)
+    if (path === "/mensagens/ler" && method === "POST") {
+      const body = await request.json();
+      if (!body.opId) return errorResponse("opId obrigatório");
+      const op = await airtable(env, "GET", TBL.oportunidades, body.opId);
+      if (!user.admin) {
+        const emailOp = (op.fields?.["E-mail do solicitante"] || "").toLowerCase();
+        if (emailOp !== user.email.toLowerCase()) return errorResponse("Acesso negado", 403);
+      }
+      const msgIds = op.fields?.["Mensagens"] || [];
+      if (!msgIds.length) return corsResponse({ ok: true, lidas: 0 });
+      const outroDe = user.admin ? "Parceiro" : "Admin";
+      const formula = `AND(OR(${msgIds.map(i => `RECORD_ID()='${i}'`).join(",")}),{De}="${outroDe}",{Lida}=FALSE())`;
+      const data = await airtable(env, "GET", TBL.mensagens, "", { filterByFormula: formula, fields: ["Mensagem"] });
+      const unread = data.records || [];
+      for (let i = 0; i < unread.length; i += 10) {
+        const batch = unread.slice(i, i + 10).map(r => ({ id: r.id, fields: { "Lida": true } }));
+        await airtable(env, "PATCH", TBL.mensagens, "", {}, { records: batch });
+      }
+      return corsResponse({ ok: true, lidas: unread.length });
+    }
+
+    // Contar mensagens não-lidas do usuário
+    if (path === "/mensagens/nao-lidas" && method === "GET") {
+      const outroDe = user.admin ? "Parceiro" : "Admin";
+      let formula;
+      if (user.admin) {
+        formula = `AND({De}="${outroDe}",{Lida}=FALSE())`;
+      } else {
+        // Busca opIds do parceiro para filtrar
+        const opsData = await airtable(env, "GET", TBL.oportunidades, "", {
+          filterByFormula: `{E-mail do solicitante}="${user.email}"`,
+          fields: ["Mensagens"],
+        });
+        const allMsgIds = (opsData.records || []).flatMap(r => r.fields["Mensagens"] || []);
+        if (!allMsgIds.length) return corsResponse({ count: 0, porOportunidade: {} });
+        formula = `AND(OR(${allMsgIds.map(i => `RECORD_ID()='${i}'`).join(",")}),{De}="${outroDe}",{Lida}=FALSE())`;
+      }
+      const data = await airtable(env, "GET", TBL.mensagens, "", {
+        filterByFormula: formula,
+        fields: ["Oportunidade"],
+      });
+      const msgs = data.records || [];
+      const porOp = {};
+      for (const m of msgs) {
+        const opId = m.fields["Oportunidade"]?.[0];
+        if (opId) porOp[opId] = (porOp[opId] || 0) + 1;
+      }
+      return corsResponse({ count: msgs.length, porOportunidade: porOp });
     }
 
     return errorResponse("Rota não encontrada", 404);
