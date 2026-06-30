@@ -93,7 +93,10 @@ async function uploadPdfDual(file, folder = "modo-docs") {
   const res1 = await fetch(`https://api.cloudinary.com/v1_1/${CONFIG.cloudinary.cloud}/image/upload`, {
     method: "POST", body: fd1,
   });
-  if (!res1.ok) throw new Error("Falha ao gerar thumbnail");
+  if (!res1.ok) {
+    const detalhe = await res1.json().catch(() => ({}));
+    throw new Error("Thumbnail (image): " + (detalhe.error?.message || res1.status));
+  }
   const thumb = await res1.json();
 
   // Upload 2: /raw para PDF de verdade
@@ -104,7 +107,10 @@ async function uploadPdfDual(file, folder = "modo-docs") {
   const res2 = await fetch(`https://api.cloudinary.com/v1_1/${CONFIG.cloudinary.cloud}/raw/upload`, {
     method: "POST", body: fd2,
   });
-  if (!res2.ok) throw new Error("Falha no upload do PDF");
+  if (!res2.ok) {
+    const detalhe = await res2.json().catch(() => ({}));
+    throw new Error("PDF (raw): " + (detalhe.error?.message || res2.status));
+  }
   const pdf = await res2.json();
 
   return { secure_url: pdf.secure_url, thumbUrl: thumb.secure_url };
