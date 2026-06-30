@@ -173,8 +173,8 @@ function renderChat(box, msgs, eu) {
 }
 
 // Monta a mensagem profissional de compartilhamento de uma oportunidade.
-function montarMensagemOportunidade(f, link) {
-  const linhas = ["🏢 Oportunidade Imobiliária — MODO Nexo", ""];
+function montarMensagemOportunidade(f, link, parceiroNome) {
+  const linhas = ["🏢 Oportunidade Imobiliária", ""];
   const local    = [f["Município"], f["Estado"]].filter(Boolean).join("/");
   const tipoLocal = [f["Tipo de imóvel"], local].filter(Boolean).join(" · ");
   if (tipoLocal) linhas.push(tipoLocal);
@@ -188,13 +188,14 @@ function montarMensagemOportunidade(f, link) {
   if (f["Valor pretendido (R$)"]) linhas.push("Valor pretendido: " + formatMoeda(f["Valor pretendido (R$)"]));
 
   linhas.push("", "Detalhes completos, fotos e documentação no link abaixo:", link);
+  if (parceiroNome) linhas.push("", "— " + parceiroNome);
   return linhas.join("\n");
 }
 
 // Modo rápido: menu nativo no mobile, WhatsApp Web como fallback.
-async function compartilharOportunidade(f, link) {
+async function compartilharOportunidade(f, link, parceiroNome) {
   if (!link) { showToast("Link indisponível.", "error"); return; }
-  const texto = montarMensagemOportunidade(f, link);
+  const texto = montarMensagemOportunidade(f, link, parceiroNome);
   if (navigator.share) {
     try { await navigator.share({ title: f["Título"] || "Oportunidade", text: texto }); return; }
     catch (e) { if (e.name === "AbortError") return; }  // usuário cancelou
@@ -203,7 +204,7 @@ async function compartilharOportunidade(f, link) {
 }
 
 // Modo dirigido: modal pedindo nome + WhatsApp; envia personalizado direto ao cliente.
-function abrirEnvioCliente(f, link) {
+function abrirEnvioCliente(f, link, parceiroNome) {
   if (!link) { showToast("Link indisponível.", "error"); return; }
   document.getElementById("_modalEnvioCliente")?.remove();
 
@@ -245,7 +246,7 @@ function abrirEnvioCliente(f, link) {
     if (!nome)             { showToast("Informe o nome do cliente.", "error"); return; }
     if (whats.length < 10) { showToast("Informe um WhatsApp válido.", "error"); return; }
     const saudacao = `Olá, ${nome.split(" ")[0]}! Tenho uma oportunidade que pode te interessar:`;
-    const msg = saudacao + "\n\n" + montarMensagemOportunidade(f, link);
+    const msg = saudacao + "\n\n" + montarMensagemOportunidade(f, link, parceiroNome);
     const numero = whats.startsWith("55") ? whats : "55" + whats;
     window.open("https://wa.me/" + numero + "?text=" + encodeURIComponent(msg), "_blank");
     fechar();

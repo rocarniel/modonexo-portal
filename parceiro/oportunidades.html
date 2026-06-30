@@ -74,9 +74,11 @@
   document.getElementById('mobileHeaderMount').innerHTML = renderMobileHeader('Oportunidades');
 
   let todasOps = [];
+  let perfilNome = '';
 
   requireAuth().then(async (profile) => {
     renderUserChip(profile);
+    perfilNome = profile.nome || '';
     try {
       const data = await API.oportunidades.listar();
       todasOps = data.records || [];
@@ -138,14 +140,14 @@
   async function compartilharDaLista(id) {
     try {
       const { fields, link } = await resolverLink(id);
-      await compartilharOportunidade(fields, link);
+      await compartilharOportunidade(fields, link, perfilNome);
     } catch (err) { showToast('Erro ao gerar link: ' + err.message, 'error'); }
   }
 
   async function enviarClienteDaLista(id) {
     try {
       const { fields, link } = await resolverLink(id);
-      abrirEnvioCliente(fields, link);
+      abrirEnvioCliente(fields, link, perfilNome);
     } catch (err) { showToast('Erro ao gerar link: ' + err.message, 'error'); }
   }
 </script>

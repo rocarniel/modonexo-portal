@@ -291,7 +291,7 @@
       }).join('');
 
       // Parceiro
-      const nomeParceiro = (f['Nome Completo (from Parceiros)'] || ['—'])[0];
+      nomeParceiro = (f['Nome Completo (from Parceiros)'] || [''])[0];
       document.getElementById('parceiroInfo').innerHTML = `
         <strong>${nomeParceiro}</strong><br>
         <span style="color:var(--text-muted)">${f['E-mail do solicitante'] || '—'}</span>`;
@@ -339,17 +339,18 @@
   }
 
   let linkCompartilhamento = '';
+  let nomeParceiro = '';
 
   function mostrarLink(token) {
     linkCompartilhamento = CONFIG.portalUrl + '/compartilhar/?token=' + token;
   }
 
   function compartilhar() {
-    compartilharOportunidade(opData?.fields || {}, linkCompartilhamento);
+    compartilharOportunidade(opData?.fields || {}, linkCompartilhamento, nomeParceiro);
   }
 
   function enviarCliente() {
-    abrirEnvioCliente(opData?.fields || {}, linkCompartilhamento);
+    abrirEnvioCliente(opData?.fields || {}, linkCompartilhamento, nomeParceiro);
   }
 
   function copiarLink() {

@@ -173,6 +173,7 @@
 
   requireAuth(false).then(async (profile) => {
     renderUserChip(profile);
+    parceiroNome = profile.nome || '';
     try {
       const data = await API.oportunidades.obter(id);
       const f    = data.fields;
@@ -312,17 +313,18 @@
 
   let opFieldsAtual = {};
   let linkCompartilhamento = '';
+  let parceiroNome = '';
 
   function mostrarLink(token) {
     linkCompartilhamento = CONFIG.portalUrl + '/compartilhar/?token=' + token;
   }
 
   function compartilhar() {
-    compartilharOportunidade(opFieldsAtual, linkCompartilhamento);
+    compartilharOportunidade(opFieldsAtual, linkCompartilhamento, parceiroNome);
   }
 
   function enviarCliente() {
-    abrirEnvioCliente(opFieldsAtual, linkCompartilhamento);
+    abrirEnvioCliente(opFieldsAtual, linkCompartilhamento, parceiroNome);
   }
 
   function copiarLink() {
