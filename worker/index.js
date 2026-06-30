@@ -934,6 +934,18 @@ export default {
         const data = await airtable(env, "PATCH", TBL.oportunidades, id, {}, { fields: campos });
         return corsResponse(data);
       }
+
+      if (method === "DELETE") {
+        // Admin pode deletar qualquer uma; parceiro só a sua
+        if (!user.admin) {
+          const atual = await airtable(env, "GET", TBL.oportunidades, id);
+          if (atual.fields["E-mail do solicitante"] !== user.email) {
+            return errorResponse("Acesso negado", 403);
+          }
+        }
+        await airtable(env, "DELETE", TBL.oportunidades, id, {});
+        return corsResponse({ message: "Oportunidade deletada" });
+      }
     }
 
     // Gerar token de compartilhamento

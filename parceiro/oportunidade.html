@@ -49,6 +49,7 @@
       <div style="display:flex;align-items:center;gap:10px">
         <div id="pageStatus"></div>
         <a id="btnEditar" href="#" class="btn btn-outline" style="font-size:13px;display:none">✏️ Editar</a>
+        <button id="btnDeletar" class="btn" style="font-size:13px;display:none;background:var(--danger);color:#fff;border:none">🗑️ Deletar</button>
       </div>
     </div>
 
@@ -174,6 +175,8 @@
       const btnEd = document.getElementById('btnEditar');
       btnEd.href         = 'nova-oportunidade.html?id=' + id;
       btnEd.style.display = '';
+      document.getElementById('btnDeletar').style.display = '';
+      document.getElementById('btnDeletar').onclick = () => deletarOportunidade(id);
       document.getElementById('conteudo').style.display = '';
 
       // Info grid
@@ -394,6 +397,19 @@
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { fecharLightbox(); fecharDocViewer(); }
   });
+
+  async function deletarOportunidade(opId) {
+    if (!confirm('Tem certeza que deseja deletar esta oportunidade? Esta ação não pode ser desfeita.')) return;
+    try {
+      showLoading(true);
+      await apiRequest("DELETE", "/oportunidades/" + opId);
+      showToast('Oportunidade deletada', 'success');
+      setTimeout(() => window.location.href = 'index.html', 500);
+    } catch (err) {
+      showToast('Erro: ' + err.message, 'error');
+      showLoading(false);
+    }
+  }
 </script>
 </body>
 </html>
