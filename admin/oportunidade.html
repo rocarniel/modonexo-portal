@@ -424,9 +424,7 @@
       return `<img src="${d.url}" alt="${d.nome}" onerror="this.parentElement.innerHTML='<span class=doc-icon>🖼️</span>'">`;
     }
     if (ext === 'pdf') {
-      // thumbUrl (image) é a fonte preferida; PDFs antigos usam d.url (também image)
-      const imgBase  = d.thumbUrl || d.url;
-      const thumbSrc = imgBase.replace('/image/upload/', '/image/upload/pg_1,w_220,c_limit/').replace(/\.pdf$/i, '.jpg');
+      const thumbSrc = d.url.replace('/image/upload/', '/image/upload/pg_1,w_220,c_limit/').replace(/\.pdf$/i, '.jpg');
       return `<img src="${thumbSrc}" alt="${d.nome}" onerror="this.parentElement.innerHTML='<span class=doc-icon>📄</span>'">`;
     }
     const icons = { doc:'📝', docx:'📝', xls:'📊', xlsx:'📊', ppt:'📋', pptx:'📋', zip:'🗜️', kmz:'🗺️', kml:'🗺️' };

@@ -77,45 +77,6 @@ async function uploadCloudinary(file, folder = "modo") {
   return res.json(); // { secure_url, public_id, resource_type, ... }
 }
 
-// ── Dual upload para PDFs (image + raw) ──────────
-async function uploadPdfDual(file, folder = "modo-docs") {
-  const limitBytes = CONFIG.limits.documentoMB * 1024 * 1024;
-  if (file.size > limitBytes) {
-    const mb = (limitBytes / 1024 / 1024).toFixed(0);
-    throw new Error(`Arquivo muito grande. Limite: ${mb} MB`);
-  }
-
-  // Upload 1: /image para gerar thumbnail
-  const fd1 = new FormData();
-  fd1.append("file", file);
-  fd1.append("upload_preset", CONFIG.cloudinary.preset);
-  fd1.append("folder", folder);
-  const res1 = await fetch(`https://api.cloudinary.com/v1_1/${CONFIG.cloudinary.cloud}/image/upload`, {
-    method: "POST", body: fd1,
-  });
-  if (!res1.ok) {
-    const detalhe = await res1.json().catch(() => ({}));
-    throw new Error("Thumbnail (image): " + (detalhe.error?.message || res1.status));
-  }
-  const thumb = await res1.json();
-
-  // Upload 2: /raw para PDF de verdade
-  const fd2 = new FormData();
-  fd2.append("file", file);
-  fd2.append("upload_preset", CONFIG.cloudinary.preset);
-  fd2.append("folder", folder);
-  const res2 = await fetch(`https://api.cloudinary.com/v1_1/${CONFIG.cloudinary.cloud}/raw/upload`, {
-    method: "POST", body: fd2,
-  });
-  if (!res2.ok) {
-    const detalhe = await res2.json().catch(() => ({}));
-    throw new Error("PDF (raw): " + (detalhe.error?.message || res2.status));
-  }
-  const pdf = await res2.json();
-
-  return { secure_url: pdf.secure_url, thumbUrl: thumb.secure_url };
-}
-
 // ── CEP ─────────────────────────────────────────
 async function buscarCEP(cep) {
   const limpo = cep.replace(/\D/g, "");

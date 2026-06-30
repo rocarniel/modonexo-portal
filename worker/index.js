@@ -314,35 +314,6 @@ export default {
     const path     = url.pathname;
     const method   = request.method;
 
-    // ── Proxy de PDF (sem auth — apenas URLs do Cloudinary permitidas) ──
-    if (path === "/proxy-pdf" && method === "GET") {
-      const pdfUrl = url.searchParams.get("url");
-      if (!pdfUrl || !pdfUrl.startsWith("https://res.cloudinary.com/")) {
-        return new Response("URL inválida", { status: 400, headers: CORS });
-      }
-      try {
-        const resp = await fetch(pdfUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-            "Accept": "application/pdf,*/*",
-            "Referer": "https://modonexo.com.br/",
-          }
-        });
-        if (!resp.ok) return new Response("Erro ao buscar PDF: " + resp.status, { status: resp.status, headers: CORS });
-        const buffer = await resp.arrayBuffer();
-        return new Response(buffer, {
-          headers: {
-            ...CORS,
-            "Content-Type": "application/pdf",
-            "Content-Disposition": "inline",
-            "Cache-Control": "public, max-age=86400",
-          }
-        });
-      } catch (e) {
-        return new Response("Erro: " + e.message, { status: 500, headers: CORS });
-      }
-    }
-
     // ── Webhooks do Airtable (sem auth — validados por secret) ──
 
     // Webhook: novo parceiro (tabela Parceiros)
