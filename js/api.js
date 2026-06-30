@@ -191,13 +191,65 @@ function montarMensagemOportunidade(f, link) {
   return linhas.join("\n");
 }
 
-// Dispara o compartilhamento: menu nativo no mobile, WhatsApp Web como fallback.
+// Modo rápido: menu nativo no mobile, WhatsApp Web como fallback.
 async function compartilharOportunidade(f, link) {
-  if (!link) return;
+  if (!link) { showToast("Link indisponível.", "error"); return; }
   const texto = montarMensagemOportunidade(f, link);
   if (navigator.share) {
     try { await navigator.share({ title: f["Título"] || "Oportunidade", text: texto }); return; }
     catch (e) { if (e.name === "AbortError") return; }  // usuário cancelou
   }
   window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank");
+}
+
+// Modo dirigido: modal pedindo nome + WhatsApp; envia personalizado direto ao cliente.
+function abrirEnvioCliente(f, link) {
+  if (!link) { showToast("Link indisponível.", "error"); return; }
+  document.getElementById("_modalEnvioCliente")?.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "_modalEnvioCliente";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:24px;max-width:380px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+      <h3 style="margin:0 0 4px;font-size:17px;color:#1e3a5f">Enviar a um cliente</h3>
+      <p style="margin:0 0 16px;font-size:13px;color:#64748b">A mensagem vai personalizada com o nome e direto para o WhatsApp dele.</p>
+      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Nome do cliente</label>
+      <input id="_ecNome" type="text" style="width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">WhatsApp</label>
+      <input id="_ecWhats" type="tel" placeholder="(47) 99999-9999" style="width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;margin-bottom:18px;box-sizing:border-box">
+      <div style="display:flex;gap:8px">
+        <button id="_ecCancelar" style="flex:1;padding:10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font-size:14px">Cancelar</button>
+        <button id="_ecEnviar" style="flex:1;padding:10px;border:none;border-radius:8px;background:#1e3a5f;color:#fff;cursor:pointer;font-size:14px;font-weight:600">Enviar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const inWhats = modal.querySelector("#_ecWhats");
+  inWhats.addEventListener("input", function () {
+    let v = this.value.replace(/\D/g, "").slice(0, 11);
+    if (v.length > 10)      v = "(" + v.slice(0,2) + ") " + v.slice(2,7) + "-" + v.slice(7);
+    else if (v.length > 6)  v = "(" + v.slice(0,2) + ") " + v.slice(2,6) + "-" + v.slice(6);
+    else if (v.length > 2)  v = "(" + v.slice(0,2) + ") " + v.slice(2);
+    else if (v.length > 0)  v = "(" + v;
+    this.value = v;
+  });
+
+  const fechar = () => modal.remove();
+  modal.querySelector("#_ecCancelar").onclick = fechar;
+  modal.onclick = (e) => { if (e.target === modal) fechar(); };
+
+  modal.querySelector("#_ecEnviar").onclick = () => {
+    const nome  = modal.querySelector("#_ecNome").value.trim();
+    const whats = inWhats.value.replace(/\D/g, "");
+    if (!nome)             { showToast("Informe o nome do cliente.", "error"); return; }
+    if (whats.length < 10) { showToast("Informe um WhatsApp válido.", "error"); return; }
+    const saudacao = `Olá, ${nome.split(" ")[0]}! Tenho uma oportunidade que pode te interessar:`;
+    const msg = saudacao + "\n\n" + montarMensagemOportunidade(f, link);
+    const numero = whats.startsWith("55") ? whats : "55" + whats;
+    window.open("https://wa.me/" + numero + "?text=" + encodeURIComponent(msg), "_blank");
+    fechar();
+  };
+
+  setTimeout(() => modal.querySelector("#_ecNome").focus(), 100);
 }

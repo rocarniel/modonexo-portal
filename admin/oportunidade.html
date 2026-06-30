@@ -153,6 +153,7 @@
             <div class="card-header"><span class="card-title">🔗 Compartilhar</span></div>
             <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Envie esta oportunidade. O acesso é rastreável.</p>
             <button class="btn btn-gold btn-block" style="width:100%" onclick="compartilhar()">📤 Compartilhar</button>
+            <button class="btn btn-outline btn-block" style="width:100%;margin-top:6px" onclick="enviarCliente()">👤 Enviar a um cliente</button>
             <button class="btn btn-outline btn-block" style="width:100%;margin-top:6px" onclick="copiarLink()">📋 Copiar link</button>
             <button type="button" onclick="limparCompartilhamentos()" style="width:100%;margin-top:12px;background:none;border:none;font-size:12px;color:var(--text-muted);text-decoration:underline;cursor:pointer">Limpar compartilhamentos (invalida os links já enviados)</button>
             <div id="leadsResumo" style="font-size:13px;color:var(--text-muted);margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">Carregando acessos…</div>
@@ -344,8 +345,11 @@
   }
 
   function compartilhar() {
-    if (!linkCompartilhamento) { showToast('Link indisponível.', 'error'); return; }
     compartilharOportunidade(opData?.fields || {}, linkCompartilhamento);
+  }
+
+  function enviarCliente() {
+    abrirEnvioCliente(opData?.fields || {}, linkCompartilhamento);
   }
 
   function copiarLink() {

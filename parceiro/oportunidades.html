@@ -61,35 +61,6 @@
   </div>
 </div>
 
-<!-- Modal compartilhamento -->
-<div class="modal-overlay hidden" id="modalCompartilhar">
-  <div class="modal">
-    <div class="modal-header">
-      <span class="modal-title">Enviar para um cliente</span>
-      <button class="modal-close" onclick="fecharModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group" style="margin-bottom:12px">
-        <label>Nome do cliente</label>
-        <input type="text" id="clienteNome" placeholder="Ex: João Silva">
-      </div>
-      <div class="form-group" style="margin-bottom:20px">
-        <label>WhatsApp do cliente</label>
-        <input type="tel" id="clienteWhats" placeholder="Ex: 47999990000" inputmode="numeric">
-      </div>
-      <button class="btn btn-block" onclick="enviarWhatsApp()" style="background:#25D366;color:#fff;border:none;padding:12px;border-radius:8px;font-size:15px;cursor:pointer;width:100%">
-        📱 Abrir WhatsApp e enviar
-      </button>
-      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Ou copie o link direto:</p>
-        <div style="display:flex;gap:8px">
-          <input type="text" id="linkCompartilhar" readonly style="flex:1;background:var(--bg);font-size:12px">
-          <button onclick="copiarLink()" style="background:var(--navy);color:#fff;border:none;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px">Copiar</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202606291610"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202606291610"></script>
@@ -132,10 +103,9 @@
         <td>${formatMoeda(o.fields['Valor pretendido (R$)'])}</td>
         <td>${badgeStatus(o.fields['Status'])}</td>
         <td>${formatData(o.fields['Data de entrada'])}</td>
-        <td>
-          <button class="btn btn-sm btn-outline" onclick="abrirCompartilhar('${o.id}','${o.fields['Token de compartilhamento'] || ''}','${encodeURIComponent(o.fields['Título'] || '')}')">
-            🔗 Link
-          </button>
+        <td style="white-space:nowrap">
+          <button class="btn btn-sm btn-gold" title="Compartilhar" onclick="compartilharDaLista('${o.id}')">📤</button>
+          <button class="btn btn-sm btn-outline" title="Enviar a um cliente" onclick="enviarClienteDaLista('${o.id}')" style="margin-left:4px">👤</button>
         </td>
       </tr>`).join('');
   }
@@ -154,45 +124,29 @@
     renderTabela(filtrado);
   }
 
-  let _linkAtual = '';
-  let _tituloAtual = '';
-
-  async function abrirCompartilhar(id, tokenExistente, titulo) {
-    let token = tokenExistente;
+  async function resolverLink(id) {
+    const op = todasOps.find(o => o.id === id);
+    let token = op?.fields['Token de compartilhamento'];
     if (!token) {
-      try {
-        const res = await API.oportunidades.gerarToken(id);
-        token = res.token;
-      } catch (err) {
-        showToast('Erro ao gerar link: ' + err.message, 'error'); return;
-      }
+      const res = await API.oportunidades.gerarToken(id);
+      token = res.token;
+      op.fields['Token de compartilhamento'] = token;
     }
-    _linkAtual   = CONFIG.portalUrl + '/compartilhar/?token=' + token;
-    _tituloAtual = decodeURIComponent(titulo);
-    document.getElementById('linkCompartilhar').value = _linkAtual;
-    document.getElementById('clienteNome').value  = '';
-    document.getElementById('clienteWhats').value = '';
-    document.getElementById('modalCompartilhar').classList.remove('hidden');
-    setTimeout(() => document.getElementById('clienteNome').focus(), 100);
+    return { fields: op.fields, link: CONFIG.portalUrl + '/compartilhar/?token=' + token };
   }
 
-  function enviarWhatsApp() {
-    const nome  = document.getElementById('clienteNome').value.trim();
-    const whats = document.getElementById('clienteWhats').value.replace(/\D/g, '');
-    if (!nome)             { showToast('Informe o nome do cliente.', 'error'); return; }
-    if (whats.length < 10) { showToast('Informe um WhatsApp válido.', 'error'); return; }
-    const saudacao = `Olá, ${nome.split(' ')[0]}!`;
-    const msg = `${saudacao} Tenho uma oportunidade que pode te interessar: *${_tituloAtual}*.\n\nAcesse os detalhes aqui: ${_linkAtual}`;
-    const numero = whats.startsWith('55') ? whats : '55' + whats;
-    window.open('https://wa.me/' + numero + '?text=' + encodeURIComponent(msg), '_blank');
-    fecharModal();
+  async function compartilharDaLista(id) {
+    try {
+      const { fields, link } = await resolverLink(id);
+      await compartilharOportunidade(fields, link);
+    } catch (err) { showToast('Erro ao gerar link: ' + err.message, 'error'); }
   }
 
-  function fecharModal() { document.getElementById('modalCompartilhar').classList.add('hidden'); }
-
-  function copiarLink() {
-    navigator.clipboard.writeText(_linkAtual);
-    showToast('Link copiado!', 'success');
+  async function enviarClienteDaLista(id) {
+    try {
+      const { fields, link } = await resolverLink(id);
+      abrirEnvioCliente(fields, link);
+    } catch (err) { showToast('Erro ao gerar link: ' + err.message, 'error'); }
   }
 </script>
 </body>
