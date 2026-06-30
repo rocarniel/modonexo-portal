@@ -179,10 +179,14 @@
       document.getElementById('btnDeletar').onclick = () => deletarOportunidade(id);
       document.getElementById('conteudo').style.display = '';
 
+      // Finalidade: lista completa vem do prefixo das Observações; fallback no singleSelect
+      const matchFin = (f['Observações'] || '').match(/^Finalidades:\s*(.+?)(\n|$)/);
+      const finalidadeCompleta = matchFin ? matchFin[1].trim() : (f['Tipo de negócio'] || null);
+
       // Info grid
       document.getElementById('infoGrid').innerHTML = [
         ['Tipo de imóvel',   f['Tipo de imóvel']],
-        ['Finalidade',       f['Tipo de negócio']],
+        ['Finalidade',       finalidadeCompleta],
         ['Área total',       (f['Área total (m²)'] ?? f['Área (m²)']) != null ? (f['Área total (m²)'] ?? f['Área (m²)']).toLocaleString('pt-BR') + ' m²' : null],
         ['Valor pretendido', formatMoeda(f['Valor pretendido (R$)'])],
         ['Data de entrada',  formatData(f['Data de entrada'])],
