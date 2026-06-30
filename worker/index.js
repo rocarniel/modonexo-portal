@@ -338,44 +338,7 @@ export default {
         const rec    = await airtable(env, "GET", TBL.parceiros, recordId);
         const fields = rec.fields || {};
         const status = fields["Status"];
-        const nome   = fields["Nome Completo"] || "";
         const email  = fields["E-Mail"] || "";
-        const creci  = fields["CRECI"] || "";
-
-        if (status === "Pendente") {
-          const urlAprovar  = `https://modonexo-worker.modonexo.workers.dev/aprovar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
-          const urlRejeitar = `https://modonexo-worker.modonexo.workers.dev/rejeitar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
-          const urlCreci = URL_CONSULTA_CRECI;
-          await sendEmail(env, {
-            to: "modogestaonexo@gmail.com",
-            subject: "Novo parceiro aguardando aprovação — Portal MODO",
-            html: `
-              <div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
-                <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
-                  <h2 style="color:#fff;margin:0;font-size:18px">Novo parceiro cadastrado</h2>
-                </div>
-                <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
-                  <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-                    <tr><td style="padding:8px 0;color:#64748b;width:90px">Nome</td><td style="padding:8px 0;font-weight:600">${nome}</td></tr>
-                    <tr><td style="padding:8px 0;color:#64748b">E-mail</td><td style="padding:8px 0">${email}</td></tr>
-                    <tr><td style="padding:8px 0;color:#64748b">WhatsApp</td><td style="padding:8px 0">${fields["WhatsApp"] || "—"}</td></tr>
-                    <tr>
-                      <td style="padding:8px 0;color:#64748b">CRECI</td>
-                      <td style="padding:8px 0">
-                        <strong>${creci}</strong>
-                        ${creci ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no IMOBISEC</a>` : ""}
-                      </td>
-                    </tr>
-                  </table>
-                  <div style="display:flex;gap:12px;margin-top:8px">
-                    <a href="${urlAprovar}" style="background:#16a34a;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px">✅ Aprovar</a>
-                    &nbsp;&nbsp;
-                    <a href="${urlRejeitar}" style="background:#dc2626;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px">❌ Rejeitar</a>
-                  </div>
-                </div>
-              </div>`,
-          });
-        }
 
         if (status === "Ativo" && email) {
           await criarUsuarioFirebase(env, email, "Modo@2030");
@@ -1069,44 +1032,64 @@ export default {
         },
       });
 
-      // Notificar a outra parte por e-mail
+      // Notificar a outra parte por e-mail (no máximo 1 a cada 3h por conversa, anti-spam)
       const titulo = op.fields["Título"] || "oportunidade";
       const texto  = esc(body.texto.trim());
-      if (user.admin) {
-        const emailParceiro = op.fields["E-mail do solicitante"] || "";
-        if (emailParceiro) {
-          const link = `https://modonexo.com.br/parceiro/oportunidade.html?id=${body.opId}`;
+      const rodapeAntiSpam = `<p style="color:#94a3b8;font-size:12px;margin-top:20px;line-height:1.5">📬 Para manter sua caixa de entrada organizada, o Portal MODOnexo envia no máximo <strong>uma notificação a cada 3 horas</strong> por conversa — independente da quantidade de mensagens recebidas no período. Para acompanhar a conversa em tempo real, acesse o portal diretamente.</p>`;
+
+      const senderDe = user.admin ? "Admin" : "Parceiro";
+      const msgIdsAnteriores = op.fields["Mensagens"] || [];
+      let deveEnviarEmail = true;
+      if (msgIdsAnteriores.length > 0) {
+        const tresHorasAtras = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+        const formula = `AND(OR(${msgIdsAnteriores.map(i => `RECORD_ID()='${i}'`).join(",")}),{De}="${senderDe}",IS_AFTER({Data e hora},"${tresHorasAtras}"))`;
+        const recentes = await airtable(env, "GET", TBL.mensagens, "", {
+          filterByFormula: formula,
+          fields: ["Data e hora"],
+          maxRecords: 1,
+        });
+        if (recentes.records?.length > 0) deveEnviarEmail = false;
+      }
+
+      if (deveEnviarEmail) {
+        if (user.admin) {
+          const emailParceiro = op.fields["E-mail do solicitante"] || "";
+          if (emailParceiro) {
+            const link = `https://modonexo.com.br/parceiro/oportunidade.html?id=${body.opId}`;
+            await sendEmail(env, {
+              to: emailParceiro,
+              subject: `Nova mensagem sobre "${titulo}" — Portal MODOnexo`,
+              html: `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+                <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
+                  <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem no portal</h2>
+                </div>
+                <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+                  <p>Você recebeu uma mensagem sobre <strong>${esc(titulo)}</strong>:</p>
+                  <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #1a1a2e;white-space:pre-wrap;font-size:15px">${texto}</div>
+                  <a href="${link}" style="background:#1a1a2e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Ver no portal →</a>
+                  ${rodapeAntiSpam}
+                </div>
+              </div>`,
+            });
+          }
+        } else {
+          const link = `https://modonexo.com.br/admin/oportunidade.html?id=${body.opId}`;
           await sendEmail(env, {
-            to: emailParceiro,
-            subject: `Nova mensagem sobre "${titulo}" — Portal MODOnexo`,
+            to: "modogestaonexo@gmail.com",
+            subject: `Mensagem de parceiro sobre "${titulo}"`,
             html: `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
               <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
-                <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem no portal</h2>
+                <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem de parceiro</h2>
               </div>
               <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
-                <p>Você recebeu uma mensagem sobre <strong>${esc(titulo)}</strong>:</p>
-                <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #1a1a2e;white-space:pre-wrap;font-size:15px">${texto}</div>
+                <p>Mensagem de <strong>${esc(user.email)}</strong> sobre <strong>${esc(titulo)}</strong>:</p>
+                <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #c09a5a;white-space:pre-wrap;font-size:15px">${texto}</div>
                 <a href="${link}" style="background:#1a1a2e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Ver no portal →</a>
+                ${rodapeAntiSpam}
               </div>
             </div>`,
           });
         }
-      } else {
-        const link = `https://modonexo.com.br/admin/oportunidade.html?id=${body.opId}`;
-        await sendEmail(env, {
-          to: "modogestaonexo@gmail.com",
-          subject: `Mensagem de parceiro sobre "${titulo}"`,
-          html: `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
-            <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
-              <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem de parceiro</h2>
-            </div>
-            <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
-              <p>Mensagem de <strong>${esc(user.email)}</strong> sobre <strong>${esc(titulo)}</strong>:</p>
-              <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #c09a5a;white-space:pre-wrap;font-size:15px">${texto}</div>
-              <a href="${link}" style="background:#1a1a2e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Ver no portal →</a>
-            </div>
-          </div>`,
-        });
       }
 
       return corsResponse({ ok: true });
