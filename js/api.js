@@ -171,3 +171,33 @@ function renderChat(box, msgs, eu) {
   }).join("");
   box.scrollTop = box.scrollHeight;
 }
+
+// Monta a mensagem profissional de compartilhamento de uma oportunidade.
+function montarMensagemOportunidade(f, link) {
+  const linhas = ["🏢 Oportunidade Imobiliária — MODO Nexo", ""];
+  const local    = [f["Município"], f["Estado"]].filter(Boolean).join("/");
+  const tipoLocal = [f["Tipo de imóvel"], local].filter(Boolean).join(" · ");
+  if (tipoLocal) linhas.push(tipoLocal);
+
+  if (f["Área total (m²)"] != null) linhas.push("Área: " + Number(f["Área total (m²)"]).toLocaleString("pt-BR") + " m²");
+
+  const matchFin = (f["Observações"] || "").match(/^Finalidades:\s*(.+?)(\n|$)/);
+  const fin = (Array.isArray(f["Finalidades"]) && f["Finalidades"].join(", ")) || (matchFin && matchFin[1]) || f["Tipo de negócio"];
+  if (fin) linhas.push("Finalidade: " + fin);
+
+  if (f["Valor pretendido (R$)"]) linhas.push("Valor pretendido: " + formatMoeda(f["Valor pretendido (R$)"]));
+
+  linhas.push("", "Detalhes completos, fotos e documentação no link abaixo:", link);
+  return linhas.join("\n");
+}
+
+// Dispara o compartilhamento: menu nativo no mobile, WhatsApp Web como fallback.
+async function compartilharOportunidade(f, link) {
+  if (!link) return;
+  const texto = montarMensagemOportunidade(f, link);
+  if (navigator.share) {
+    try { await navigator.share({ title: f["Título"] || "Oportunidade", text: texto }); return; }
+    catch (e) { if (e.name === "AbortError") return; }  // usuário cancelou
+  }
+  window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank");
+}

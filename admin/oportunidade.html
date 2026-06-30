@@ -150,15 +150,12 @@
 
           <!-- Compartilhamentos -->
           <div class="card">
-            <div class="card-header">
-              <span class="card-title">🔗 Compartilhamentos</span>
-              <button class="btn btn-sm btn-outline" onclick="gerarLink()">Gerar link</button>
-            </div>
-            <div id="linkGerado" style="display:none;margin-bottom:12px">
-              <input type="text" id="linkInput" readonly style="background:var(--bg);font-size:12px">
-              <button class="btn btn-sm btn-gold" style="margin-top:6px;width:100%" onclick="copiarLink()">Copiar link</button>
-            </div>
-            <div id="leadsResumo" style="font-size:13px;color:var(--text-muted)">Carregando acessos…</div>
+            <div class="card-header"><span class="card-title">🔗 Compartilhar</span></div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Envie esta oportunidade. O acesso é rastreável.</p>
+            <button class="btn btn-gold btn-block" style="width:100%" onclick="compartilhar()">📤 Compartilhar</button>
+            <button class="btn btn-outline btn-block" style="width:100%;margin-top:6px" onclick="copiarLink()">📋 Copiar link</button>
+            <button type="button" onclick="limparCompartilhamentos()" style="width:100%;margin-top:12px;background:none;border:none;font-size:12px;color:var(--text-muted);text-decoration:underline;cursor:pointer">Limpar compartilhamentos (invalida os links já enviados)</button>
+            <div id="leadsResumo" style="font-size:13px;color:var(--text-muted);margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">Carregando acessos…</div>
           </div>
         </div>
       </div>
@@ -340,23 +337,30 @@
     } catch (err) { showToast('Erro: ' + err.message, 'error'); }
   }
 
-  async function gerarLink() {
-    try {
-      const res = await API.oportunidades.gerarToken(id);
-      mostrarLink(res.token);
-      showToast('Link gerado!', 'success');
-    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
-  }
+  let linkCompartilhamento = '';
 
   function mostrarLink(token) {
-    const link = CONFIG.portalUrl + '/compartilhar/?token=' + token;
-    document.getElementById('linkInput').value = link;
-    document.getElementById('linkGerado').style.display = '';
+    linkCompartilhamento = CONFIG.portalUrl + '/compartilhar/?token=' + token;
+  }
+
+  function compartilhar() {
+    if (!linkCompartilhamento) { showToast('Link indisponível.', 'error'); return; }
+    compartilharOportunidade(opData?.fields || {}, linkCompartilhamento);
   }
 
   function copiarLink() {
-    navigator.clipboard.writeText(document.getElementById('linkInput').value);
+    if (!linkCompartilhamento) { showToast('Link indisponível.', 'error'); return; }
+    navigator.clipboard.writeText(linkCompartilhamento);
     showToast('Link copiado!', 'success');
+  }
+
+  async function limparCompartilhamentos() {
+    if (!confirm('Isso vai invalidar TODOS os links já enviados desta oportunidade. Um novo link será gerado no lugar. Deseja continuar?')) return;
+    try {
+      const res = await API.oportunidades.gerarToken(id);
+      mostrarLink(res.token);
+      showToast('Compartilhamentos limpos. Novo link ativo.', 'success');
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
   }
 
   async function carregarLeads(opId) {
