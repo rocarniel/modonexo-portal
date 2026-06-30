@@ -121,6 +121,16 @@
             <div id="leadsResumo" style="font-size:13px;color:var(--text-muted)">Carregando…</div>
           </div>
 
+          <!-- Chat com a equipe MODO -->
+          <div class="card">
+            <div class="card-header"><span class="card-title">💬 Mensagens</span></div>
+            <div id="chatBox" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:10px;padding:4px"></div>
+            <div style="display:flex;gap:6px;align-items:flex-end">
+              <textarea id="chatInput" rows="2" placeholder="Escreva uma mensagem…" style="flex:1;resize:vertical;font-size:13px"></textarea>
+              <button class="btn btn-navy" onclick="enviarMensagem()" style="white-space:nowrap">Enviar</button>
+            </div>
+          </div>
+
           <!-- Histórico -->
           <div class="card" id="cardHistorico" style="display:none">
             <div class="card-header"><span class="card-title">🕓 Histórico de alterações</span></div>
@@ -256,6 +266,7 @@
 
       renderHistorico(f['Histórico (JSON)']);
       carregarLeads(id);
+      carregarMensagens();
 
     } catch (err) {
       document.getElementById('pageTitulo').textContent = 'Erro ao carregar';
@@ -278,6 +289,27 @@
             🕐 ${l.fields['Data e hora do acesso'] ? new Date(l.fields['Data e hora do acesso']).toLocaleString('pt-BR') : '—'}
           </div>`).join('') + '</div>';
     } catch { el.textContent = 'Indisponível.'; }
+  }
+
+  async function carregarMensagens() {
+    const box = document.getElementById('chatBox');
+    try {
+      const data = await API.mensagens.listar(id);
+      renderChat(box, data.records || [], 'Parceiro');
+    } catch { box.innerHTML = '<p style="color:var(--danger);font-size:13px">Erro ao carregar mensagens.</p>'; }
+  }
+
+  async function enviarMensagem() {
+    const input = document.getElementById('chatInput');
+    const texto = input.value.trim();
+    if (!texto) return;
+    input.disabled = true;
+    try {
+      await API.mensagens.enviar(id, texto);
+      input.value = '';
+      await carregarMensagens();
+    } catch (err) { showToast('Erro ao enviar: ' + err.message, 'error'); }
+    finally { input.disabled = false; input.focus(); }
   }
 
   async function gerarLink() {

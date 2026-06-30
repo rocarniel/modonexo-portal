@@ -1035,39 +1035,43 @@ export default {
       }
     }
 
-    if (path === "/mensagem/parceiro" && method === "POST") {
-      if (!user.admin) return errorResponse("Acesso negado", 403);
-      const { emailParceiro, nomeParceiro, tituloOp, mensagem } = await req.json();
-      if (!emailParceiro || !mensagem) return errorResponse("Dados incompletos");
-      const emailRes = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: "MODO Nexo <noreply@modonexo.com.br>",
-          to: emailParceiro,
-          subject: `📩 Mensagem sobre: ${tituloOp}`,
-          html: `
-            <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
-              <div style="background:#1e3a5f;padding:20px 24px;border-radius:8px 8px 0 0">
-                <h2 style="color:#fff;margin:0;font-size:18px">📩 Mensagem da equipe MODO</h2>
-              </div>
-              <div style="background:#f8f9fa;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
-                <p style="margin-bottom:8px">Olá, <strong>${nomeParceiro}</strong>!</p>
-                <p style="margin-bottom:16px">Recebemos uma mensagem sobre a oportunidade <strong>${tituloOp}</strong>:</p>
-                <div style="background:#fff;border-left:4px solid #1e3a5f;padding:14px 18px;border-radius:4px;font-size:15px;line-height:1.6;color:#333">
-                  ${mensagem.replace(/\n/g, "<br>")}
-                </div>
-                <p style="margin-top:20px;color:#666;font-size:13px">
-                  Caso tenha dúvidas, responda este e-mail ou acesse o portal.
-                </p>
-              </div>
-            </div>`,
-        }),
-      });
-      if (!emailRes.ok) {
-        const err = await emailRes.text();
-        return errorResponse("Erro ao enviar e-mail: " + err, 500);
+    // ── Chat por oportunidade ──────────────────────
+    if (path === "/mensagens" && method === "GET") {
+      const opId = url.searchParams.get("opId");
+      if (!opId) return errorResponse("opId obrigatório", 400);
+      const op = await airtable(env, "GET", TBL.oportunidades, opId);
+      // Parceiro só acessa as próprias oportunidades
+      if (!user.admin) {
+        const emailOp = (op.fields?.["E-mail do solicitante"] || "").toLowerCase();
+        if (emailOp !== user.email.toLowerCase()) return errorResponse("Acesso negado", 403);
       }
+      const msgIds = op.fields?.["Mensagens"] || [];
+      if (!msgIds.length) return corsResponse({ records: [] });
+      const formula = "OR(" + msgIds.map(id => `RECORD_ID()='${id}'`).join(",") + ")";
+      const data = await airtable(env, "GET", TBL.mensagens, "", {
+        filterByFormula: formula,
+        sort: [{ field: "Data e hora", direction: "asc" }],
+      });
+      return corsResponse(data);
+    }
+
+    if (path === "/mensagens" && method === "POST") {
+      const body = await request.json();
+      if (!body.opId || !body.texto?.trim()) return errorResponse("Dados incompletos");
+      const op = await airtable(env, "GET", TBL.oportunidades, body.opId);
+      if (!user.admin) {
+        const emailOp = (op.fields?.["E-mail do solicitante"] || "").toLowerCase();
+        if (emailOp !== user.email.toLowerCase()) return errorResponse("Acesso negado", 403);
+      }
+      await airtable(env, "POST", TBL.mensagens, "", {}, {
+        fields: {
+          "Mensagem":      body.texto.trim(),
+          "Oportunidade":  [body.opId],
+          "De":            user.admin ? "Admin" : "Parceiro",
+          "Data e hora":   new Date().toISOString(),
+          "Lida":          false,
+        },
+      });
       return corsResponse({ ok: true });
     }
 

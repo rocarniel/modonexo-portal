@@ -49,6 +49,11 @@ const API = {
     registrar: (data) => apiRequest("POST", "/leads/publico", data),
   },
 
+  mensagens: {
+    listar: (opId)        => apiRequest("GET", "/mensagens?opId=" + opId),
+    enviar: (opId, texto) => apiRequest("POST", "/mensagens", { opId, texto }),
+  },
+
   publico: {
     oportunidade: (token) => fetch(CONFIG.workerUrl + "/publico/oportunidade/" + token).then(r => r.json()),
   },
@@ -138,4 +143,30 @@ function formatData(d) {
 
 function gerarTokenLocal() {
   return Math.random().toString(36).substr(2, 10) + Date.now().toString(36);
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+// Renderiza balões de chat. `eu` = "Admin" ou "Parceiro" (alinha à direita as próprias mensagens).
+function renderChat(box, msgs, eu) {
+  if (!msgs.length) {
+    box.innerHTML = '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:12px">Nenhuma mensagem ainda. Inicie a conversa.</p>';
+    return;
+  }
+  box.innerHTML = msgs.map(m => {
+    const de   = m.fields["De"] || "";
+    const mine = de === eu;
+    const hora = m.fields["Data e hora"]
+      ? new Date(m.fields["Data e hora"]).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+      : "";
+    return `<div style="align-self:${mine ? "flex-end" : "flex-start"};max-width:82%;background:${mine ? "var(--navy)" : "#e2e8f0"};color:${mine ? "#fff" : "#1e293b"};padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word">
+      <div>${escapeHtml(m.fields["Mensagem"])}</div>
+      <div style="font-size:10px;opacity:.7;margin-top:4px;text-align:right">${de} · ${hora}</div>
+    </div>`;
+  }).join("");
+  box.scrollTop = box.scrollHeight;
 }
