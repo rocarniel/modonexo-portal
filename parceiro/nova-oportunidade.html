@@ -279,8 +279,7 @@
       const mapa = {
         municipio: f['Município'], estado: estadoSigla, cep: f['CEP'],
         videoLink: f['Link de vídeo'],
-        // Strip "Finalidades: X\n\n" prefix adicionado automaticamente pelo worker
-        obs: (f['Observações'] || '').replace(/^Finalidades:.*?(\n\n|$)/s, '').trim(),
+        obs: f['Observações'] || '',
         comissao:  f['Comissão (%)'] != null ? (f['Comissão (%)'] * 100).toString() : '',
         detComissao: f['Detalhes da comissão'],
       };
@@ -300,13 +299,10 @@
       if (f['Tipo de imóvel']) document.getElementById('tipo').value = f['Tipo de imóvel'];
       document.getElementById('tipo').dispatchEvent(new Event('change'));
 
-      // Finalidade
-      // Finalidades: extrai do prefixo "Finalidades: X, Y\n\n" do campo Observações
+      // Finalidades: campo multipleSelects (lista completa); fallback no singleSelect
       document.querySelectorAll('.finalidade-cb').forEach(cb => cb.checked = false);
-      const obsRaw = f['Observações'] || '';
-      const matchFin = obsRaw.match(/^Finalidades:\s*(.+?)\n/);
-      const finalidades = matchFin
-        ? matchFin[1].split(',').map(s => s.trim())
+      const finalidades = f['Finalidades']?.length
+        ? f['Finalidades']
         : (f['Tipo de negócio'] ? [f['Tipo de negócio']] : []);
       finalidades.forEach(val => {
         const cb = document.querySelector(`.finalidade-cb[value="${val}"]`);

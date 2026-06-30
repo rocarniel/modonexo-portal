@@ -179,9 +179,8 @@
       document.getElementById('btnDeletar').onclick = () => deletarOportunidade(id);
       document.getElementById('conteudo').style.display = '';
 
-      // Finalidade: lista completa vem do prefixo das Observações; fallback no singleSelect
-      const matchFin = (f['Observações'] || '').match(/^Finalidades:\s*(.+?)(\n|$)/);
-      const finalidadeCompleta = matchFin ? matchFin[1].trim() : (f['Tipo de negócio'] || null);
+      // Finalidade: campo multipleSelects (lista completa); fallback no singleSelect
+      const finalidadeCompleta = (f['Finalidades']?.length ? f['Finalidades'].join(', ') : f['Tipo de negócio']) || null;
 
       // Info grid
       document.getElementById('infoGrid').innerHTML = [
@@ -238,9 +237,7 @@
       // Observações
       if (f['Observações']) {
         document.getElementById('cardObs').style.display = '';
-        const obsLimpo = f['Observações'].replace(/^(Finalidades:.*?(\n\n|$))+/s, '').trim();
-        document.getElementById('obsTexto').textContent  = obsLimpo;
-        if (!obsLimpo) document.getElementById('cardObs').style.display = 'none';
+        document.getElementById('obsTexto').textContent  = f['Observações'];
       }
 
       // Comissão

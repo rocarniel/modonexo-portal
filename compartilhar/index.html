@@ -188,8 +188,7 @@
     document.getElementById('dataAcesso').textContent   = new Date().toLocaleString('pt-BR');
     document.getElementById('tokenRef').textContent     = token;
 
-    const matchFin = (f['Observações'] || '').match(/^Finalidades:\s*(.+?)(\n|$)/);
-    const finalidadeCompleta = matchFin ? matchFin[1].trim() : (f['Tipo de negócio'] || null);
+    const finalidadeCompleta = (f['Finalidades']?.length ? f['Finalidades'].join(', ') : f['Tipo de negócio']) || null;
 
     document.getElementById('opDados').innerHTML = [
       ['Tipo',      f['Tipo de imóvel']],

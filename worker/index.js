@@ -127,24 +127,24 @@ const ESTADO_MAP = {
   RN:"Rio Grande do Norte",RS:"Rio Grande do Sul",RO:"Rondônia",
   RR:"Roraima",SC:"Santa Catarina",SP:"São Paulo",SE:"Sergipe",TO:"Tocantins",
 };
-// Opções válidas no singleSelect "Tipo de negócio" do Airtable
-const FINALIDADE_VALIDA = new Set(["Venda","Locação","Permuta","Parceria"]);
+// Opções válidas para Finalidades (multipleSelects) e Tipo de negócio (singleSelect)
+const FINALIDADE_VALIDA = new Set(["Venda","Locação","Permuta","Parceria","Lançamento","Incorporação","Loteamento"]);
 
 // ── Montar campos de Oportunidade para Airtable ──
 function camposOportunidade(payload, parceiro) {
   const tipoMapeado   = TIPO_IMOVEL_MAP[payload.tipo] || payload.tipo;
   const estadoMapeado = ESTADO_MAP[payload.estado]    || payload.estado;
 
-  // Pega a primeira finalidade válida para o singleSelect
-  const finalidades = (payload.finalidade || "").split(", ").map(f => f.trim());
-  const finalidadePrincipal = finalidades.find(f => FINALIDADE_VALIDA.has(f)) || null;
+  // Finalidades: lista completa no multipleSelects; a primeira vai no singleSelect (compat)
+  const finalidades = (payload.finalidade || "").split(", ").map(f => f.trim()).filter(f => FINALIDADE_VALIDA.has(f));
 
   const titulo = [tipoMapeado, payload.municipio, payload.estado].filter(Boolean).join(" · ");
 
   const campos = {
     "Título":                   titulo,
     "Tipo de imóvel":           tipoMapeado    || null,
-    "Tipo de negócio":          finalidadePrincipal,
+    "Finalidades":              finalidades.length ? finalidades : null,
+    "Tipo de negócio":          finalidades[0] || null,
     "CEP":                      payload.cep         || null,
     "Endereço":                 payload.endereco    || null,
     "Município":                payload.municipio   || null,
@@ -156,10 +156,7 @@ function camposOportunidade(payload, parceiro) {
     "Detalhes da comissão":     payload.detComissao || null,
     "Link de vídeo":            payload.videoLink   || null,
     "Link KMZ/KML":             payload.kmlLink     || null,
-    "Observações":              [
-      finalidades.length > 1 ? `Finalidades: ${finalidades.join(", ")}` : null,
-      payload.observacoes || null,
-    ].filter(Boolean).join("\n\n") || null,
+    "Observações":              payload.observacoes || null,
     "Latitude":                 payload.lat         || null,
     "Longitude":                payload.lng         || null,
     "Status":                   "Recebido",
@@ -831,14 +828,14 @@ export default {
         // Edição completa (formulário)
         const ehEdicaoCompleta = body.tipo || body.municipio || body.area != null || body.valor != null;
         if (ehEdicaoCompleta) {
-          const finalidades = (body.finalidade || "").split(", ").map(f => f.trim());
-          const finalidadePrincipal = finalidades.find(f => FINALIDADE_VALIDA.has(f)) || null;
+          const finalidades = (body.finalidade || "").split(", ").map(f => f.trim()).filter(f => FINALIDADE_VALIDA.has(f));
           const tipoMapeado   = TIPO_IMOVEL_MAP[body.tipo]  || body.tipo   || null;
           const estadoMapeado = ESTADO_MAP[body.estado]     || body.estado || null;
           const titulo = [tipoMapeado, body.municipio, body.estado].filter(Boolean).join(" · ");
           if (titulo)                     campos["Título"]                = titulo;
           if (tipoMapeado)                campos["Tipo de imóvel"]        = tipoMapeado;
-          if (finalidadePrincipal)        campos["Tipo de negócio"]       = finalidadePrincipal;
+          if (finalidades.length)       { campos["Finalidades"]          = finalidades;
+                                          campos["Tipo de negócio"]       = finalidades[0]; }
           if (body.cep)                   campos["CEP"]                   = body.cep;
           if (body.endereco)              campos["Endereço"]              = body.endereco;
           if (body.municipio)             campos["Município"]             = body.municipio;
@@ -852,11 +849,7 @@ export default {
           if (body.kmlLink)               campos["Link KMZ/KML"]         = body.kmlLink;
           if (body.lat != null)           campos["Latitude"]             = body.lat;
           if (body.lng != null)           campos["Longitude"]            = body.lng;
-          const obs = [
-            finalidades.length > 1 ? `Finalidades: ${finalidades.join(", ")}` : null,
-            body.observacoes || null,
-          ].filter(Boolean).join("\n\n");
-          if (obs) campos["Observações"] = obs;
+          campos["Observações"] = body.observacoes || "";
         }
         if (body.arquivos) campos["Arquivos (JSON)"] = JSON.stringify(body.arquivos);
 
@@ -865,7 +858,7 @@ export default {
           const atual = await airtable(env, "GET", TBL.oportunidades, id);
           const LABELS = {
             "Título": "Título", "Tipo de imóvel": "Tipo de imóvel",
-            "Tipo de negócio": "Finalidade", "Área total (m²)": "Área total",
+            "Finalidades": "Finalidade", "Tipo de negócio": "Finalidade (principal)", "Área total (m²)": "Área total",
             "Área privativa (m²)": "Área privativa", "Valor pretendido (R$)": "Valor pretendido",
             "CEP": "CEP", "Endereço": "Endereço", "Município": "Município",
             "Estado": "Estado", "Observações": "Observações",
