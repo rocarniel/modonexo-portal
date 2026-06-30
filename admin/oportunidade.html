@@ -478,7 +478,7 @@
     try {
       const data = await API.mensagens.listar(id);
       renderChat(box, data.records || [], 'Admin');
-    } catch { box.innerHTML = '<p style="color:var(--danger);font-size:13px">Erro ao carregar mensagens.</p>'; }
+    } catch (err) { box.innerHTML = '<p style="color:var(--danger);font-size:13px">Erro ao carregar mensagens: ' + escapeHtml(err.message) + '</p>'; }
   }
 
   async function enviarMensagem() {
