@@ -194,6 +194,38 @@ function montarMensagemOportunidade(f, link, parceiroNome) {
   return linhas.join("\n");
 }
 
+// Menu de escolha: prévia (localização/fotos) ou ficha completa (valor/área/observações).
+// Resolve com o link final (com ou sem &modo=completo) ou null se cancelado.
+function escolherModoCompartilhamento(linkBase) {
+  return new Promise((resolve) => {
+    document.getElementById("_modalModoShare")?.remove();
+    const modal = document.createElement("div");
+    modal.id = "_modalModoShare";
+    modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px";
+    modal.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:24px;max-width:380px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+        <h3 style="margin:0 0 4px;font-size:17px;color:#1e3a5f">O que você quer compartilhar?</h3>
+        <p style="margin:0 0 16px;font-size:13px;color:#64748b">Escolha o nível de detalhe do link.</p>
+        <button id="_msPrevia" style="width:100%;text-align:left;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;margin-bottom:8px">
+          <strong>📍 Prévia</strong><br><span style="font-size:12px;color:#64748b">Localização, fotos e tipo do imóvel</span>
+        </button>
+        <button id="_msCompleta" style="width:100%;text-align:left;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;margin-bottom:14px">
+          <strong>📄 Ficha completa</strong><br><span style="font-size:12px;color:#64748b">Inclui valor, área e observações</span>
+        </button>
+        <button id="_msCancelar" style="width:100%;padding:10px;border:none;background:none;color:#64748b;cursor:pointer;font-size:13px">Cancelar</button>
+      </div>`;
+    document.body.appendChild(modal);
+    const fechar = (modo) => {
+      modal.remove();
+      resolve(modo ? linkBase + "&modo=" + modo : null);
+    };
+    modal.querySelector("#_msPrevia").onclick   = () => fechar("previa");
+    modal.querySelector("#_msCompleta").onclick = () => fechar("completo");
+    modal.querySelector("#_msCancelar").onclick = () => fechar(null);
+    modal.onclick = (e) => { if (e.target === modal) fechar(null); };
+  });
+}
+
 // Modo rápido: menu nativo no mobile, WhatsApp Web como fallback.
 async function compartilharOportunidade(f, link, parceiroNome) {
   if (!link) { showToast("Link indisponível.", "error"); return; }

@@ -49,7 +49,10 @@ async function verifyFirebaseToken(token, env) {
   // Verificar expiração pelo payload JWT antes de chamar a API (CRÍTICO 2)
   try {
     const [, payloadB64] = token.split(".");
-    const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+    // JWT usa base64url sem padding — adicionar padding antes de atob()
+    const b64 = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
     if (payload.exp * 1000 < Date.now()) return null;
   } catch { return null; }
 
@@ -273,6 +276,34 @@ function gerarSenhaTemp() {
 async function parseBody(request) {
   try { return await request.json(); }
   catch { return null; }
+}
+
+// Rate limit por chave (ex: "signup:1.2.3.4") usando KV.
+// Retorna { ok, retryAfterSec } — retryAfterSec só é preenchido quando ok=false (CRÍTICO 5)
+async function checkRateLimit(env, key, maxTentativas, janelaSegundos) {
+  const agora = Date.now();
+  const atual = await env.RATE_LIMIT.get(key, { type: "json" });
+  if (!atual || agora - atual.inicio > janelaSegundos * 1000) {
+    await env.RATE_LIMIT.put(key, JSON.stringify({ inicio: agora, contagem: 1 }), { expirationTtl: janelaSegundos });
+    return { ok: true };
+  }
+  if (atual.contagem >= maxTentativas) {
+    const retryAfterSec = Math.ceil((janelaSegundos * 1000 - (agora - atual.inicio)) / 1000);
+    return { ok: false, retryAfterSec };
+  }
+  await env.RATE_LIMIT.put(key, JSON.stringify({ inicio: atual.inicio, contagem: atual.contagem + 1 }), { expirationTtl: janelaSegundos });
+  return { ok: true };
+}
+
+// Monta a resposta 429 com mensagem amigável e tempo de espera
+function respostaRateLimit(retryAfterSec) {
+  const minutos = Math.max(1, Math.ceil(retryAfterSec / 60));
+  const tempo   = minutos === 1 ? "1 minuto" : `${minutos} minutos`;
+  const msg = `Para preservar a integridade e a eficiência dos nossos servidores, foi detectado um excesso de solicitações vindas deste acesso. Por gentileza, aguarde cerca de ${tempo} antes de tentar novamente. Atenciosamente, Equipe MODOnexo.`;
+  return new Response(JSON.stringify({ error: msg }), {
+    status: 429,
+    headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(retryAfterSec) },
+  });
 }
 
 // ── URLs de consulta CRECI por UF ────────────────────
@@ -623,6 +654,9 @@ export default {
 
     // Cadastro público de parceiro
     if (path === "/parceiros/publico" && method === "POST") {
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const rl = await checkRateLimit(env, `signup:${ip}`, 5, 3600);
+      if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
       const body = await parseBody(request);
       if (!body) return errorResponse("Corpo da requisição inválido", 400);
       if (!body.nome || !body.email) return errorResponse("Nome e e-mail obrigatórios");
@@ -715,6 +749,9 @@ export default {
 
     // Registro de lead (acesso a link público)
     if (path === "/leads/publico" && method === "POST") {
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const rl = await checkRateLimit(env, `lead:${ip}`, 20, 3600);
+      if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
       const body = await parseBody(request);
       if (!body) return errorResponse("Corpo da requisição inválido", 400);
       if (!body.nome || !body.whatsapp || !body.token) return errorResponse("Dados incompletos");
@@ -754,6 +791,9 @@ export default {
     if (path.startsWith("/publico/oportunidade/") && method === "GET") {
       const token = path.split("/").pop();
       if (!validarToken(token)) return errorResponse("Token inválido", 400);
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const rl = await checkRateLimit(env, `view:${ip}`, 60, 3600);
+      if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
       const data  = await airtable(env, "GET", TBL.oportunidades, "", {
         filterByFormula: `{Token de compartilhamento} = "${escFormula(token)}"`,
         maxRecords: 1,
@@ -769,16 +809,23 @@ export default {
         if (p) parceiro = { nome: p.fields["Nome Completo"], whatsapp: p.fields["WhatsApp"] };
       }
 
-      // Allowlist de campos públicos — comissão, histórico e dados internos não são expostos (MÉDIO 8)
-      const CAMPOS_PUBLICOS = new Set([
-        "Título","Tipo de imóvel","Finalidades","Tipo de negócio",
-        "Município","Estado","CEP","Endereço",
-        "Área total (m²)","Área privativa (m²)","Valor pretendido (R$)",
-        "Observações","Latitude","Longitude","Link de vídeo","Link KMZ/KML",
+      // Allowlist de campos públicos — comissão e histórico nunca são expostos (MÉDIO 8).
+      // "prévia" (padrão): só localização, tipo e mídia. "completo": inclui valor, área e observações.
+      const modo = url.searchParams.get("modo") === "completo" ? "completo" : "previa";
+      const CAMPOS_PREVIA = new Set([
+        "Título","Tipo de imóvel",
+        "Município","Estado","Latitude","Longitude","Link KMZ/KML",
         "Token de compartilhamento","Arquivos (JSON)",
       ]);
+      const CAMPOS_COMPLETO = new Set([
+        ...CAMPOS_PREVIA,
+        "Finalidades","Tipo de negócio","CEP","Endereço",
+        "Área total (m²)","Área privativa (m²)","Valor pretendido (R$)",
+        "Observações","Link de vídeo",
+      ]);
+      const camposPermitidos = modo === "completo" ? CAMPOS_COMPLETO : CAMPOS_PREVIA;
       const fieldsFiltrados = Object.fromEntries(
-        Object.entries(op.fields).filter(([k]) => CAMPOS_PUBLICOS.has(k))
+        Object.entries(op.fields).filter(([k]) => camposPermitidos.has(k))
       );
       fieldsFiltrados._parceiro = parceiro;
 

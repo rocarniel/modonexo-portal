@@ -9,6 +9,10 @@ crons = ["0 8 * * *"]
 [vars]
 AIRTABLE_BASE = "appt6mRYfyo5Aq6Db"
 
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "8984fae1ef074f3ebb9c0527d497c0e6"
+
 # Secrets (não coloque aqui — use: wrangler secret put AIRTABLE_API_KEY)
 # wrangler secret put AIRTABLE_API_KEY
 # wrangler secret put FIREBASE_API_KEY

@@ -347,17 +347,25 @@
     linkCompartilhamento = CONFIG.portalUrl + '/compartilhar/?token=' + token;
   }
 
-  function compartilhar() {
-    compartilharOportunidade(opData?.fields || {}, linkCompartilhamento, nomeParceiro);
-  }
-
-  function enviarCliente() {
-    abrirEnvioCliente(opData?.fields || {}, linkCompartilhamento, nomeParceiro);
-  }
-
-  function copiarLink() {
+  async function compartilhar() {
     if (!linkCompartilhamento) { showToast('Link indisponível.', 'error'); return; }
-    navigator.clipboard.writeText(linkCompartilhamento);
+    const link = await escolherModoCompartilhamento(linkCompartilhamento);
+    if (!link) return;
+    compartilharOportunidade(opData?.fields || {}, link, nomeParceiro);
+  }
+
+  async function enviarCliente() {
+    if (!linkCompartilhamento) { showToast('Link indisponível.', 'error'); return; }
+    const link = await escolherModoCompartilhamento(linkCompartilhamento);
+    if (!link) return;
+    abrirEnvioCliente(opData?.fields || {}, link, nomeParceiro);
+  }
+
+  async function copiarLink() {
+    if (!linkCompartilhamento) { showToast('Link indisponível.', 'error'); return; }
+    const link = await escolherModoCompartilhamento(linkCompartilhamento);
+    if (!link) return;
+    navigator.clipboard.writeText(link);
     showToast('Link copiado!', 'success');
   }
 
