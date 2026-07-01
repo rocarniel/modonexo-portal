@@ -97,17 +97,18 @@
     }
     tbody.innerHTML = parceiros.map(p => {
       const f   = p.fields;
+      const H   = escapeHtml;
       const ops = f['Oportunidades']?.length || 0;
       return `<tr>
-        <td><strong>${f['Nome Completo'] || '—'}</strong></td>
-        <td>${f['CRECI'] || '—'}</td>
-        <td><a href="mailto:${f['E-Mail']}" style="color:var(--navy)">${f['E-Mail'] || '—'}</a></td>
-        <td><a href="https://wa.me/55${(f['WhatsApp']||'').replace(/\D/g,'')}" target="_blank" style="color:var(--navy)">${f['WhatsApp'] || '—'}</a></td>
+        <td><strong>${H(f['Nome Completo'] || '—')}</strong></td>
+        <td>${H(f['CRECI'] || '—')}</td>
+        <td><a href="mailto:${H(f['E-Mail'] || '')}" style="color:var(--navy)">${H(f['E-Mail'] || '—')}</a></td>
+        <td><a href="https://wa.me/55${(f['WhatsApp']||'').replace(/\D/g,'')}" target="_blank" style="color:var(--navy)">${H(f['WhatsApp'] || '—')}</a></td>
         <td>${formatData(f['Data de cadastro'])}</td>
         <td>${badgeStatus(f['Status'])}</td>
         <td><span class="badge badge-analise">${ops}</span></td>
         <td>
-          <button class="btn btn-sm btn-outline" onclick="abrirModal('${p.id}','${f['Nome Completo'] || ''}','${f['Status'] || 'Pendente'}')">
+          <button class="btn btn-sm btn-outline" onclick="abrirModal('${p.id}','${H(f['Nome Completo'] || '')}','${H(f['Status'] || 'Pendente')}')">
             Alterar status
           </button>
         </td>

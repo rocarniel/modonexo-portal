@@ -237,11 +237,12 @@
     // Vídeo
     if (f['Link de vídeo']) {
       document.getElementById('cardVideo').style.display = '';
-      const url  = f['Link de vídeo'];
-      const ytId = url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1];
-      document.getElementById('videoEmbed').innerHTML = ytId
-        ? `<iframe width="100%" height="220" src="https://www.youtube.com/embed/${ytId}" frameborder="0" allowfullscreen style="border-radius:8px"></iframe>`
-        : `<a href="${url}" target="_blank" class="btn btn-outline">▶️ Abrir vídeo</a>`;
+      const url    = f['Link de vídeo'];
+      const ytId   = url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1];
+      const ytSafe = ytId && /^[a-zA-Z0-9_-]{10,12}$/.test(ytId) ? ytId : null;
+      document.getElementById('videoEmbed').innerHTML = ytSafe
+        ? `<iframe width="100%" height="220" src="https://www.youtube.com/embed/${ytSafe}" frameborder="0" allowfullscreen style="border-radius:8px"></iframe>`
+        : `<a href="${encodeURI(url)}" target="_blank" class="btn btn-outline">▶️ Abrir vídeo</a>`;
     }
 
     // Obs

@@ -218,13 +218,14 @@
       const finalidadeCompleta = (f['Finalidades']?.length ? f['Finalidades'].join(', ') : f['Tipo de negócio']) || null;
 
       // Info grid
+      const H = escapeHtml;
       document.getElementById('infoGrid').innerHTML = [
-        ['Tipo de imóvel',  f['Tipo de imóvel']],
-        ['Finalidade',      finalidadeCompleta],
-        ['Área',            (f['Área total (m²)'] ?? f['Área (m²)']) != null ? (f['Área total (m²)'] ?? f['Área (m²)']).toLocaleString('pt-BR') + ' m²' : null],
+        ['Tipo de imóvel',  H(f['Tipo de imóvel'] || '')],
+        ['Finalidade',      H(finalidadeCompleta  || '')],
+        ['Área',            (f['Área total (m²)'] ?? f['Área (m²)']) != null ? (f['Área total (m²)'] ?? f['Área (m²)']).toLocaleString('pt-BR') + ' m²' : ''],
         ['Valor pretendido',formatMoeda(f['Valor pretendido (R$)'])],
         ['Data de entrada', formatData(f['Data de entrada'])],
-        ['Origem',          f['Origem'] || 'Parceiro'],
+        ['Origem',          H(f['Origem'] || 'Parceiro')],
       ].map(([l, v]) => v ? `<div class="info-item"><label>${l}</label><span>${v}</span></div>` : '').join('');
 
       // Endereço
@@ -241,7 +242,7 @@
       }
       if (f['Link KMZ/KML']) {
         omnivore.kml(f['Link KMZ/KML']).addTo(mapD);
-        document.getElementById('kmlInfo').innerHTML = `<a href="${f['Link KMZ/KML']}" target="_blank" class="btn btn-sm btn-outline">⬇️ Baixar KMZ/KML</a>`;
+        document.getElementById('kmlInfo').innerHTML = `<a href="${H(f['Link KMZ/KML'])}" target="_blank" class="btn btn-sm btn-outline">⬇️ Baixar KMZ/KML</a>`;
       }
 
       // Imagens
@@ -265,9 +266,10 @@
         document.getElementById('cardVideo').style.display = '';
         const url = f['Link de vídeo'];
         const ytId = url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1];
-        document.getElementById('videoEmbed').innerHTML = ytId
-          ? `<iframe width="100%" height="240" src="https://www.youtube.com/embed/${ytId}" frameborder="0" allowfullscreen style="border-radius:8px"></iframe>`
-          : `<a href="${url}" target="_blank" class="btn btn-outline">▶️ Abrir vídeo</a>`;
+        const ytIdSafe = ytId && /^[a-zA-Z0-9_-]{10,12}$/.test(ytId) ? ytId : null;
+        document.getElementById('videoEmbed').innerHTML = ytIdSafe
+          ? `<iframe width="100%" height="240" src="https://www.youtube.com/embed/${ytIdSafe}" frameborder="0" allowfullscreen style="border-radius:8px"></iframe>`
+          : `<a href="${H(url)}" target="_blank" class="btn btn-outline">▶️ Abrir vídeo</a>`;
       }
 
       // Observações
@@ -293,15 +295,15 @@
       // Parceiro
       nomeParceiro = 'MODOnexo';
       document.getElementById('parceiroInfo').innerHTML = `
-        <strong>${nomeParceiro}</strong><br>
-        <span style="color:var(--text-muted)">${f['E-mail do solicitante'] || '—'}</span>`;
+        <strong>${H(nomeParceiro)}</strong><br>
+        <span style="color:var(--text-muted)">${H(f['E-mail do solicitante'] || '—')}</span>`;
 
       // Comissão
       if (f['Comissão (%)'] || f['Detalhes da comissão']) {
         document.getElementById('cardComissao').style.display = '';
         document.getElementById('comissaoInfo').innerHTML = `
           ${f['Comissão (%)'] ? `<strong>${(f['Comissão (%)']*100).toFixed(1)}%</strong><br>` : ''}
-          <span style="color:var(--text-muted)">${f['Detalhes da comissão'] || ''}</span>`;
+          <span style="color:var(--text-muted)">${H(f['Detalhes da comissão'] || '')}</span>`;
       }
 
       // Token / leads
@@ -377,8 +379,8 @@
       el.innerHTML = `<strong>${leads.length} acesso(s) registrado(s)</strong><div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">` +
         leads.map(l => `
           <div style="font-size:12px;padding:6px;background:var(--bg);border-radius:6px">
-            <strong>${l.fields['Nome'] || '—'}</strong><br>
-            📱 ${l.fields['WhatsApp'] || '—'}<br>
+            <strong>${escapeHtml(l.fields['Nome'] || '—')}</strong><br>
+            📱 ${escapeHtml(l.fields['WhatsApp'] || '—')}<br>
             🕐 ${l.fields['Data e hora do acesso'] ? new Date(l.fields['Data e hora do acesso']).toLocaleString('pt-BR') : '—'}
           </div>`).join('') + '</div>';
     } catch { /* silencioso */ }
@@ -502,7 +504,7 @@
 
   function iniciarPollingChat() {
     if (_chatPoll) return;
-    _chatPoll = setInterval(() => carregarMensagens(true), 5000);
+    _chatPoll = setInterval(() => carregarMensagens(true), 15000);
   }
   function pararPollingChat() { clearInterval(_chatPoll); _chatPoll = null; }
   document.addEventListener('visibilitychange', () => document.hidden ? pararPollingChat() : iniciarPollingChat());

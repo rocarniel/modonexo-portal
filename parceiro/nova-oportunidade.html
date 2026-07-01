@@ -700,7 +700,6 @@
         if (editandoId) {
           await API.oportunidades.atualizar(editandoId, payload);
         } else {
-          payload.token         = gerarTokenLocal();
           payload.origem        = origemMODO ? 'MODO' : 'Parceiro';
           payload.emailParceiro = userProfile?.email;
           await API.oportunidades.criar(payload);

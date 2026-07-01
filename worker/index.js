@@ -21,10 +21,16 @@ const TBL = {
 };
 
 // ── CORS ──────────────────────────────────────────
+const ALLOWED_ORIGINS = [
+  "https://www.modonexo.com.br",
+  "https://modonexo.com.br",
+];
+
 const CORS = {
-  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Origin":  "https://www.modonexo.com.br",
   "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type,Authorization",
+  "Vary": "Origin",
 };
 
 function corsResponse(body, status = 200) {
@@ -40,6 +46,13 @@ function errorResponse(msg, status = 400) {
 
 // ── Verificar token Firebase ──────────────────────
 async function verifyFirebaseToken(token, env) {
+  // Verificar expiração pelo payload JWT antes de chamar a API (CRÍTICO 2)
+  try {
+    const [, payloadB64] = token.split(".");
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+    if (payload.exp * 1000 < Date.now()) return null;
+  } catch { return null; }
+
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idToken: token }) }
@@ -47,7 +60,7 @@ async function verifyFirebaseToken(token, env) {
   if (!res.ok) return null;
   const data = await res.json();
   const user = data.users?.[0];
-  if (!user) return null;
+  if (!user || user.disabled) return null;
   return {
     uid:   user.localId,
     email: user.email,
@@ -98,10 +111,22 @@ async function airtable(env, method, table, recordId = "", params = {}, body = n
 // ── Buscar parceiro pelo email ────────────────────
 async function getParceiroPorEmail(env, email) {
   const data = await airtable(env, "GET", TBL.parceiros, "", {
-    filterByFormula: `{E-Mail} = "${email}"`,
+    filterByFormula: `{E-Mail} = "${escFormula(email)}"`,
     maxRecords: 1,
   });
   return data.records?.[0] || null;
+}
+
+// ── Verificar acesso de parceiro a uma oportunidade ──
+// Retorna o registro da oportunidade; lança { status, message } se negado.
+async function verificarAcessoOportunidade(env, user, opId) {
+  if (!validarRecordId(opId)) throw { status: 400, message: "ID de oportunidade inválido" };
+  const op = await airtable(env, "GET", TBL.oportunidades, opId);
+  if (!user.admin) {
+    const emailOp = (op.fields?.["E-mail do solicitante"] || "").toLowerCase();
+    if (emailOp !== user.email.toLowerCase()) throw { status: 403, message: "Acesso negado" };
+  }
+  return op;
 }
 
 // ── Gerar token único ─────────────────────────────
@@ -216,7 +241,38 @@ async function criarUsuarioFirebase(env, email, senha) {
 }
 
 function esc(s) {
-  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  return String(s || "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+// Escapa aspas duplas em valores usados dentro de fórmulas Airtable (CRÍTICO 3)
+function escFormula(s) {
+  return String(s || "").replace(/\\/g,"\\\\").replace(/"/g,'\\"');
+}
+
+// Valida formato de token de compartilhamento (apenas alfanumérico minúsculo, 10-24 chars)
+function validarToken(t) {
+  return typeof t === "string" && /^[a-z0-9]{10,24}$/.test(t);
+}
+
+// Valida formato de record ID do Airtable (rec + 14 chars alfanuméricos)
+function validarRecordId(id) {
+  return typeof id === "string" && /^rec[a-zA-Z0-9]{14}$/.test(id);
+}
+
+// Gera senha temporária: "user@" + 4 dígitos aleatórios (CRÍTICO 1)
+function gerarSenhaTemp() {
+  const arr = new Uint8Array(2);
+  crypto.getRandomValues(arr);
+  const n = ((arr[0] << 8) | arr[1]) % 10000;
+  return "user@" + String(n).padStart(4, "0");
+}
+
+// Faz parse do body JSON com erro controlado (MÉDIO 3)
+async function parseBody(request) {
+  try { return await request.json(); }
+  catch { return null; }
 }
 
 // ── URLs de consulta CRECI por UF ────────────────────
@@ -224,7 +280,9 @@ const URL_CONSULTA_CRECI = "https://imobisec.com.br/busca";
 
 // ── Webhooks Airtable ─────────────────────────────
 // IDs são atualizados dinamicamente via /webhooks/recriar
-let WEBHOOKS = {
+// IDs hardcoded — CF Workers são stateless, mutações de módulo não persistem.
+// Após /webhooks/recriar, atualizar estes valores manualmente e re-deploiar.
+const WEBHOOKS = {
   parceiros:     "achi9mucKX4tCMZZz",
   oportunidades: "achCjaYV9Z3207Efo",
 };
@@ -295,13 +353,21 @@ export default {
   },
 
   async fetch(request, env) {
+    const reqOrigin    = request.headers.get("Origin") || "";
+    const allowedOrigin = ALLOWED_ORIGINS.includes(reqOrigin) ? reqOrigin : null;
     try {
-      return await this._handle(request, env);
+      const res = await this._handle(request, env);
+      if (!allowedOrigin) return res; // chamada server-to-server — sem override de CORS
+      const h = new Headers(res.headers);
+      h.set("Access-Control-Allow-Origin", allowedOrigin);
+      h.set("Vary", "Origin");
+      return new Response(res.body, { status: res.status, headers: h });
     } catch (err) {
       console.error("Worker unhandled:", err);
+      const corsH = allowedOrigin ? { "Access-Control-Allow-Origin": allowedOrigin, "Vary": "Origin" } : {};
       return new Response(JSON.stringify({ error: err.message || "Erro interno" }), {
         status: 500,
-        headers: { ...CORS, "Content-Type": "application/json" },
+        headers: { ...CORS, ...corsH, "Content-Type": "application/json" },
       });
     }
   },
@@ -413,8 +479,7 @@ export default {
       const email = rec.fields?.["E-Mail"] || "";
 
       if (email) {
-        const creciNumero = (rec.fields?.["CRECI"] || "").replace(/\D/g, "") || "0000";
-        const senhaTemp = `user@${creciNumero}`;
+        const senhaTemp = gerarSenhaTemp();
         await criarUsuarioFirebase(env, email, senhaTemp);
 
         const urlPortal = `https://modonexo.com.br`;
@@ -462,15 +527,19 @@ export default {
         });
       }
 
+      const HTML_HEADERS = {
+        "Content-Type": "text/html;charset=UTF-8",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+      };
       return new Response(`
         <html><body style="font-family:sans-serif;text-align:center;padding:60px">
           <h2 style="color:#16a34a">✅ Parceiro aprovado!</h2>
-          <p><strong>${nome}</strong> agora tem acesso ao portal MODOnexo.</p>
-          <p style="color:#666">Um e-mail de boas-vindas foi enviado para <strong>${email}</strong>.</p>
+          <p><strong>${esc(nome)}</strong> agora tem acesso ao portal MODOnexo.</p>
+          <p style="color:#666">Um e-mail de boas-vindas foi enviado para <strong>${esc(email)}</strong>.</p>
           <p style="color:#666">Você pode fechar esta aba.</p>
-        </body></html>`, {
-        headers: { "Content-Type": "text/html;charset=UTF-8" },
-      });
+        </body></html>`, { headers: HTML_HEADERS });
     }
 
     if (path === "/rejeitar/parceiro" && method === "GET") {
@@ -486,10 +555,15 @@ export default {
       return new Response(`
         <html><body style="font-family:sans-serif;text-align:center;padding:60px">
           <h2 style="color:#dc2626">❌ Parceiro rejeitado</h2>
-          <p><strong>${nome}</strong> foi marcado como Suspenso.</p>
+          <p><strong>${esc(nome)}</strong> foi marcado como Suspenso.</p>
           <p style="color:#666">Você pode fechar esta aba.</p>
         </body></html>`, {
-        headers: { "Content-Type": "text/html;charset=UTF-8" },
+        headers: {
+          "Content-Type": "text/html;charset=UTF-8",
+          "X-Content-Type-Options": "nosniff",
+          "X-Frame-Options": "DENY",
+          "Referrer-Policy": "strict-origin-when-cross-origin",
+        },
       });
     }
 
@@ -549,8 +623,11 @@ export default {
 
     // Cadastro público de parceiro
     if (path === "/parceiros/publico" && method === "POST") {
-      const body = await request.json();
+      const body = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
       if (!body.nome || !body.email) return errorResponse("Nome e e-mail obrigatórios");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return errorResponse("E-mail inválido");
+      if (body.nome.length > 120 || body.email.length > 120) return errorResponse("Campo excede tamanho permitido");
       const uf         = (body.creciUf   || "").toUpperCase();
       const tipo       = (body.creciTipo || "").toUpperCase(); // PF ou PJ
       const creciLabel = [
@@ -638,12 +715,14 @@ export default {
 
     // Registro de lead (acesso a link público)
     if (path === "/leads/publico" && method === "POST") {
-      const body = await request.json();
+      const body = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
       if (!body.nome || !body.whatsapp || !body.token) return errorResponse("Dados incompletos");
+      if (!validarToken(body.token)) return errorResponse("Token inválido", 400);
 
       // Buscar oportunidade pelo token
       const opData = await airtable(env, "GET", TBL.oportunidades, "", {
-        filterByFormula: `{Token de compartilhamento} = "${body.token}"`,
+        filterByFormula: `{Token de compartilhamento} = "${escFormula(body.token)}"`,
         maxRecords: 1,
         fields: ["Título", "E-mail do solicitante", "Token de compartilhamento"],
       });
@@ -674,8 +753,9 @@ export default {
     // Oportunidade pública pelo token
     if (path.startsWith("/publico/oportunidade/") && method === "GET") {
       const token = path.split("/").pop();
+      if (!validarToken(token)) return errorResponse("Token inválido", 400);
       const data  = await airtable(env, "GET", TBL.oportunidades, "", {
-        filterByFormula: `{Token de compartilhamento} = "${token}"`,
+        filterByFormula: `{Token de compartilhamento} = "${escFormula(token)}"`,
         maxRecords: 1,
       });
       const op = data.records?.[0];
@@ -689,18 +769,29 @@ export default {
         if (p) parceiro = { nome: p.fields["Nome Completo"], whatsapp: p.fields["WhatsApp"] };
       }
 
-      // Desserializar arquivos para a página pública
-      const fields = { ...op.fields, _parceiro: parceiro };
+      // Allowlist de campos públicos — comissão, histórico e dados internos não são expostos (MÉDIO 8)
+      const CAMPOS_PUBLICOS = new Set([
+        "Título","Tipo de imóvel","Finalidades","Tipo de negócio",
+        "Município","Estado","CEP","Endereço",
+        "Área total (m²)","Área privativa (m²)","Valor pretendido (R$)",
+        "Observações","Latitude","Longitude","Link de vídeo","Link KMZ/KML",
+        "Token de compartilhamento","Arquivos (JSON)",
+      ]);
+      const fieldsFiltrados = Object.fromEntries(
+        Object.entries(op.fields).filter(([k]) => CAMPOS_PUBLICOS.has(k))
+      );
+      fieldsFiltrados._parceiro = parceiro;
+
       const arquivosJson = op.fields["Arquivos (JSON)"];
       if (arquivosJson) {
         try {
           const todos = JSON.parse(arquivosJson);
-          fields._imagens    = todos.filter(a => a.tipo === "imagem").map(a => a.url);
-          fields._documentos = todos.filter(a => a.tipo === "documento");
+          fieldsFiltrados._imagens    = todos.filter(a => a.tipo === "imagem").map(a => a.url);
+          fieldsFiltrados._documentos = todos.filter(a => a.tipo === "documento");
         } catch { /* JSON inválido — ignora */ }
       }
 
-      return corsResponse({ id: op.id, fields });
+      return corsResponse({ id: op.id, fields: fieldsFiltrados });
     }
 
     // ── Autenticação obrigatória abaixo ────────────
@@ -736,7 +827,8 @@ export default {
     }
 
     if (path === "/oportunidades" && method === "POST") {
-      const body     = await request.json();
+      const body = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
       const parceiro = user.admin ? null : await getParceiroPorEmail(env, user.email);
       const campos   = camposOportunidade(body, parceiro);
       const record   = await airtable(env, "POST", TBL.oportunidades, "", {}, { fields: campos });
@@ -746,6 +838,7 @@ export default {
     const opMatch = path.match(/^\/oportunidades\/([^/]+)$/);
     if (opMatch) {
       const id = opMatch[1];
+      if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
 
       if (method === "GET") {
         const data = await airtable(env, "GET", TBL.oportunidades, id);
@@ -766,15 +859,15 @@ export default {
       }
 
       if (method === "PATCH") {
-        const body = await request.json();
+        const body = await parseBody(request);
+        if (!body) return errorResponse("Corpo da requisição inválido", 400);
 
-        // Parceiro só pode editar a própria oportunidade; admin pode editar qualquer uma
+        // GET único — reaproveitado tanto para verificação de acesso quanto para o log de auditoria (ALTO 5)
+        const atual = await airtable(env, "GET", TBL.oportunidades, id);
         if (!user.admin) {
-          const atual = await airtable(env, "GET", TBL.oportunidades, id);
-          if (atual.fields["E-mail do solicitante"] !== user.email) {
+          if ((atual.fields["E-mail do solicitante"] || "").toLowerCase() !== user.email.toLowerCase()) {
             return errorResponse("Acesso negado", 403);
           }
-          // Parceiro não pode alterar status diretamente
           delete body.status;
           delete body.motivo;
         }
@@ -812,9 +905,8 @@ export default {
         }
         if (body.arquivos) campos["Arquivos (JSON)"] = JSON.stringify(body.arquivos);
 
-        // ── Log de auditoria ──────────────────────────
+        // ── Log de auditoria — usa o `atual` já obtido acima (sem segundo GET) ──
         if (ehEdicaoCompleta || body.status || body.arquivos) {
-          const atual = await airtable(env, "GET", TBL.oportunidades, id);
           const LABELS = {
             "Título": "Título", "Tipo de imóvel": "Tipo de imóvel",
             "Finalidades": "Finalidade", "Tipo de negócio": "Finalidade (principal)", "Área total (m²)": "Área total",
@@ -842,7 +934,7 @@ export default {
             const entrada = {
               data:      new Date().toISOString(),
               email:     user.email,
-              nome:      user.name || user.email,
+              nome:      user.email,
               admin:     user.admin || false,
               alteracoes,
             };
@@ -859,10 +951,9 @@ export default {
       }
 
       if (method === "DELETE") {
-        // Admin pode deletar qualquer uma; parceiro só a sua
         if (!user.admin) {
           const atual = await airtable(env, "GET", TBL.oportunidades, id);
-          if (atual.fields["E-mail do solicitante"] !== user.email) {
+          if ((atual.fields["E-mail do solicitante"] || "").toLowerCase() !== user.email.toLowerCase()) {
             return errorResponse("Acesso negado", 403);
           }
         }
@@ -895,7 +986,9 @@ export default {
     const parceiroMatch = path.match(/^\/parceiros\/([^/]+)$/);
     if (parceiroMatch && method === "PATCH" && user.admin) {
       const id     = parceiroMatch[1];
-      const body   = await request.json();
+      if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
+      const body   = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
       const campos = {};
       if (body.status) campos["Status"] = body.status;
       const data = await airtable(env, "PATCH", TBL.parceiros, id, {}, { fields: campos });
@@ -913,7 +1006,8 @@ export default {
     }
 
     if (path === "/avisos" && method === "POST" && user.admin) {
-      const body = await request.json();
+      const body = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
       const data = await airtable(env, "POST", TBL.mensagens, "", {}, {
         fields: {
           "Mensagem":   body.mensagem,
@@ -935,7 +1029,8 @@ export default {
     }
 
     if (path === "/demandas" && method === "POST" && user.admin) {
-      const body = await request.json();
+      const body = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
       const data = await airtable(env, "POST", TBL.demandas, "", {}, {
         fields: {
           "Título":                 body.titulo,
@@ -955,7 +1050,9 @@ export default {
     const demandaMatch = path.match(/^\/demandas\/([^/]+)$/);
     if (demandaMatch && method === "PATCH" && user.admin) {
       const id   = demandaMatch[1];
-      const body = await request.json();
+      if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
+      const body = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
       const campos = {};
       if (body.titulo    !== undefined) campos["Título"]                 = body.titulo;
       if (body.tipo      !== undefined) campos["Tipo de imóvel"]         = body.tipo;
@@ -998,12 +1095,9 @@ export default {
     if (path === "/mensagens" && method === "GET") {
       const opId = url.searchParams.get("opId");
       if (!opId) return errorResponse("opId obrigatório", 400);
-      const op = await airtable(env, "GET", TBL.oportunidades, opId);
-      // Parceiro só acessa as próprias oportunidades
-      if (!user.admin) {
-        const emailOp = (op.fields?.["E-mail do solicitante"] || "").toLowerCase();
-        if (emailOp !== user.email.toLowerCase()) return errorResponse("Acesso negado", 403);
-      }
+      let op;
+      try { op = await verificarAcessoOportunidade(env, user, opId); }
+      catch (e) { return errorResponse(e.message, e.status || 400); }
       const msgIds = op.fields?.["Mensagens"] || [];
       if (!msgIds.length) return corsResponse({ records: [] });
       const formula = "OR(" + msgIds.map(id => `RECORD_ID()='${id}'`).join(",") + ")";
@@ -1015,12 +1109,20 @@ export default {
     }
 
     if (path === "/mensagens" && method === "POST") {
-      const body = await request.json();
+      const body = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
       if (!body.opId || !body.texto?.trim()) return errorResponse("Dados incompletos");
-      const op = await airtable(env, "GET", TBL.oportunidades, body.opId);
+      if (body.texto.length > 4000) return errorResponse("Mensagem muito longa (máx 4000 chars)");
+      let op;
+      try { op = await verificarAcessoOportunidade(env, user, body.opId); }
+      catch (e) { return errorResponse(e.message, e.status || 400); }
+
+      // Parceiro suspenso/inativo não pode enviar mensagens (MÉDIO 6)
       if (!user.admin) {
-        const emailOp = (op.fields?.["E-mail do solicitante"] || "").toLowerCase();
-        if (emailOp !== user.email.toLowerCase()) return errorResponse("Acesso negado", 403);
+        const parceiro = await getParceiroPorEmail(env, user.email);
+        if (!parceiro || parceiro.fields["Status"] !== "Ativo") {
+          return errorResponse("Conta suspensa ou inativa", 403);
+        }
       }
       await airtable(env, "POST", TBL.mensagens, "", {}, {
         fields: {
@@ -1042,7 +1144,7 @@ export default {
       let deveEnviarEmail = true;
       if (msgIdsAnteriores.length > 0) {
         const tresHorasAtras = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-        const formula = `AND(OR(${msgIdsAnteriores.map(i => `RECORD_ID()='${i}'`).join(",")}),{De}="${senderDe}",IS_AFTER({Data e hora},"${tresHorasAtras}"))`;
+        const formula = `AND(OR(${msgIdsAnteriores.map(i => `RECORD_ID()='${escFormula(i)}'`).join(",")}),{De}="${escFormula(senderDe)}",IS_AFTER({Data e hora},"${tresHorasAtras}"))`;
         const recentes = await airtable(env, "GET", TBL.mensagens, "", {
           filterByFormula: formula,
           fields: ["Data e hora"],
@@ -1097,17 +1199,15 @@ export default {
 
     // Marcar mensagens como lidas (batch PATCH)
     if (path === "/mensagens/ler" && method === "POST") {
-      const body = await request.json();
-      if (!body.opId) return errorResponse("opId obrigatório");
-      const op = await airtable(env, "GET", TBL.oportunidades, body.opId);
-      if (!user.admin) {
-        const emailOp = (op.fields?.["E-mail do solicitante"] || "").toLowerCase();
-        if (emailOp !== user.email.toLowerCase()) return errorResponse("Acesso negado", 403);
-      }
+      const body = await parseBody(request);
+      if (!body || !body.opId) return errorResponse("opId obrigatório");
+      let op;
+      try { op = await verificarAcessoOportunidade(env, user, body.opId); }
+      catch (e) { return errorResponse(e.message, e.status || 400); }
       const msgIds = op.fields?.["Mensagens"] || [];
       if (!msgIds.length) return corsResponse({ ok: true, lidas: 0 });
       const outroDe = user.admin ? "Parceiro" : "Admin";
-      const formula = `AND(OR(${msgIds.map(i => `RECORD_ID()='${i}'`).join(",")}),{De}="${outroDe}",{Lida}=FALSE())`;
+      const formula = `AND(OR(${msgIds.map(i => `RECORD_ID()='${escFormula(i)}'`).join(",")}),{De}="${escFormula(outroDe)}",{Lida}=FALSE())`;
       const data = await airtable(env, "GET", TBL.mensagens, "", { filterByFormula: formula, fields: ["Mensagem"] });
       const unread = data.records || [];
       for (let i = 0; i < unread.length; i += 10) {
@@ -1131,7 +1231,7 @@ export default {
         });
         const allMsgIds = (opsData.records || []).flatMap(r => r.fields["Mensagens"] || []);
         if (!allMsgIds.length) return corsResponse({ count: 0, porOportunidade: {} });
-        formula = `AND(OR(${allMsgIds.map(i => `RECORD_ID()='${i}'`).join(",")}),{De}="${outroDe}",{Lida}=FALSE())`;
+        formula = `AND(OR(${allMsgIds.map(i => `RECORD_ID()='${escFormula(i)}'`).join(",")}),{De}="${escFormula(outroDe)}",{Lida}=FALSE())`;
       }
       const data = await airtable(env, "GET", TBL.mensagens, "", {
         filterByFormula: formula,

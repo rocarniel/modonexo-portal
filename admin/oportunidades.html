@@ -86,11 +86,12 @@
     }
     tbody.innerHTML = ops.map(o => {
       const f = o.fields;
+      const H = escapeHtml;
       return `<tr style="cursor:pointer" onclick="location.href='oportunidade.html?id=${o.id}'">
-        <td><strong>${f['Título'] || '—'}</strong></td>
-        <td style="font-size:13px">${(f['Nome Completo (from Parceiros)'] || ['—'])[0]}</td>
-        <td>${f['Tipo de imóvel'] || '—'}</td>
-        <td>${f['Município'] || '—'}/${f['Estado'] || '—'}</td>
+        <td><strong>${H(f['Título'] || '—')}</strong></td>
+        <td style="font-size:13px">${H((f['Nome Completo (from Parceiros)'] || ['—'])[0])}</td>
+        <td>${H(f['Tipo de imóvel'] || '—')}</td>
+        <td>${H(f['Município'] || '—')}/${H(f['Estado'] || '—')}</td>
         <td>${formatMoeda(f['Valor pretendido (R$)'])}</td>
         <td>${badgeStatus(f['Status'])}</td>
         <td>${f['Origem'] === 'MODO' ? '<span class="badge badge-modo">MODO</span>' : '<span class="badge badge-parceiro">Parceiro</span>'}</td>
