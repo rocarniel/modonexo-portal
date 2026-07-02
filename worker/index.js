@@ -484,6 +484,16 @@ function esc(s) {
     .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
+// Checa se o parceiro logado ainda está com status "Ativo" — suspender/inativar
+// um parceiro (PATCH /parceiros/:id) não revoga o token Firebase dele, então
+// toda rota de escrita usada por parceiros precisa checar isso no D1 também.
+async function parceiroPodeEscrever(env, email) {
+  const parceiro = await env.DB.prepare(
+    "SELECT status FROM parceiros WHERE lower(email) = lower(?)"
+  ).bind(email).first();
+  return !!parceiro && parceiro.status === "Ativo";
+}
+
 // Valida a estrutura de "arquivos" (imagens/documentos) antes de gravar.
 function validarArquivos(arquivos) {
   if (!Array.isArray(arquivos)) return null;
@@ -879,6 +889,9 @@ async function handleRequest(request, env) {
   }
 
   if (path === "/oportunidades" && method === "POST") {
+    if (!user.admin && !(await parceiroPodeEscrever(env, user.email))) {
+      return errorResponse("Conta suspensa ou inativa", 403);
+    }
     const body = await parseBody(request);
     if (!body) return errorResponse("Corpo da requisição inválido", 400);
     if (body.arquivos) {
@@ -955,6 +968,9 @@ async function handleRequest(request, env) {
       if (!user.admin) {
         if (atual.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
           return errorResponse("Acesso negado", 403);
+        }
+        if (!(await parceiroPodeEscrever(env, user.email))) {
+          return errorResponse("Conta suspensa ou inativa", 403);
         }
         delete body.status;
         delete body.motivo;
@@ -1070,6 +1086,9 @@ async function handleRequest(request, env) {
         if (atual.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
           return errorResponse("Acesso negado", 403);
         }
+        if (!(await parceiroPodeEscrever(env, user.email))) {
+          return errorResponse("Conta suspensa ou inativa", 403);
+        }
       }
       await env.DB.prepare("DELETE FROM oportunidades WHERE id = ?").bind(id).run();
       return corsResponse({ message: "Oportunidade deletada" });
@@ -1085,6 +1104,9 @@ async function handleRequest(request, env) {
     if (!op) return errorResponse("Oportunidade não encontrada", 404);
     if (!user.admin && op.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
       return errorResponse("Acesso negado", 403);
+    }
+    if (!user.admin && !(await parceiroPodeEscrever(env, user.email))) {
+      return errorResponse("Conta suspensa ou inativa", 403);
     }
     const token = gerarToken();
     await env.DB.prepare("UPDATE oportunidades SET token_compartilhamento = ? WHERE id = ?").bind(token, id).run();
@@ -1339,11 +1361,8 @@ async function handleRequest(request, env) {
       return errorResponse("Acesso negado", 403);
     }
 
-    if (!user.admin) {
-      const parceiro = await env.DB.prepare("SELECT status FROM parceiros WHERE lower(email) = lower(?)").bind(user.email).first();
-      if (!parceiro || parceiro.status !== "Ativo") {
-        return errorResponse("Conta suspensa ou inativa", 403);
-      }
+    if (!user.admin && !(await parceiroPodeEscrever(env, user.email))) {
+      return errorResponse("Conta suspensa ou inativa", 403);
     }
 
     const msgId = gerarRecordId();
