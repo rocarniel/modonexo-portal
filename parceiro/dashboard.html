@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MODOnexo — Dashboard</title>
-  <link rel="stylesheet" href="../css/style.css?v=202607010001">
+  <link rel="stylesheet" href="../css/style.css?v=202607020001">
 </head>
 <body>
 <div class="app-layout">
@@ -69,12 +69,12 @@
   <span style="color:var(--navy);font-size:14px">Carregando…</span>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607010001"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607010001"></script>
-<script src="../js/config.js?v=202607010001"></script>
-<script src="../js/auth.js?v=202607010001"></script>
-<script src="../js/api.js?v=202607010001"></script>
-<script src="../js/layout.js?v=202607010001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607020001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607020001"></script>
+<script src="../js/config.js?v=202607020001"></script>
+<script src="../js/auth.js?v=202607020001"></script>
+<script src="../js/api.js?v=202607020001"></script>
+<script src="../js/layout.js?v=202607020001"></script>
 <script>
   firebase.initializeApp(CONFIG.firebase);
 
@@ -102,9 +102,9 @@
       } else {
         tbody.innerHTML = ops.map(o => `
           <tr style="cursor:pointer" onclick="location.href='oportunidade.html?id=${o.id}'">
-            <td><strong>${o.fields['Título'] || '—'}</strong></td>
-            <td>${o.fields['Tipo de imóvel'] || '—'}</td>
-            <td>${o.fields['Município'] || '—'}</td>
+            <td><strong>${escapeHtml(o.fields['Título'] || '—')}</strong></td>
+            <td>${escapeHtml(o.fields['Tipo de imóvel'] || '—')}</td>
+            <td>${escapeHtml(o.fields['Município'] || '—')}</td>
             <td>${formatMoeda(o.fields['Valor pretendido (R$)'])}</td>
             <td>${badgeStatus(o.fields['Status'])}</td>
             <td>${formatData(o.fields['Data de entrada'])}</td>
@@ -120,7 +120,7 @@
       } else {
         avArea.innerHTML = avisos.map(a => `
           <div style="padding:10px 0;border-bottom:1px solid var(--border)">
-            <div style="font-size:14px">${a.fields['Mensagem'] || ''}</div>
+            <div style="font-size:14px">${escapeHtml(a.fields['Mensagem'] || '')}</div>
             <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${formatData(a.fields['Data e hora']?.split('T')[0])}</div>
           </div>`).join('');
       }

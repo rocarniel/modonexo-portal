@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MODOnexo — Leads</title>
-  <link rel="stylesheet" href="../css/style.css?v=202607010001">
+  <link rel="stylesheet" href="../css/style.css?v=202607020001">
 </head>
 <body>
 <div class="app-layout">
@@ -49,12 +49,12 @@
   </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607010001"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607010001"></script>
-<script src="../js/config.js?v=202607010001"></script>
-<script src="../js/auth.js?v=202607010001"></script>
-<script src="../js/api.js?v=202607010001"></script>
-<script src="../js/layout.js?v=202607010001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607020001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607020001"></script>
+<script src="../js/config.js?v=202607020001"></script>
+<script src="../js/auth.js?v=202607020001"></script>
+<script src="../js/api.js?v=202607020001"></script>
+<script src="../js/layout.js?v=202607020001"></script>
 <script>
   firebase.initializeApp(CONFIG.firebase);
   document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/leads.html');
@@ -87,13 +87,14 @@
     }
     tbody.innerHTML = leads.map(l => {
       const f  = l.fields;
+      const H  = escapeHtml;
       const dt = f['Data e hora do acesso'] ? new Date(f['Data e hora do acesso']).toLocaleString('pt-BR') : '—';
-      const wa = f['WhatsApp'] ? `<a href="https://wa.me/55${f['WhatsApp'].replace(/\D/g,'')}" target="_blank" style="color:var(--navy)">${f['WhatsApp']}</a>` : '—';
+      const wa = f['WhatsApp'] ? `<a href="https://wa.me/55${encodeURIComponent(f['WhatsApp'].replace(/\D/g,''))}" target="_blank" style="color:var(--navy)">${H(f['WhatsApp'])}</a>` : '—';
       return `<tr>
-        <td><strong>${f['Nome'] || '—'}</strong></td>
+        <td><strong>${H(f['Nome'] || '—')}</strong></td>
         <td>${wa}</td>
-        <td style="font-size:13px">${f['Título da oportunidade'] || '—'}</td>
-        <td style="font-size:13px">${f['Parceiro que compartilhou'] || '—'}</td>
+        <td style="font-size:13px">${H(f['Título da oportunidade'] || '—')}</td>
+        <td style="font-size:13px">${H(f['Parceiro que compartilhou'] || '—')}</td>
         <td style="font-size:13px">${dt}</td>
       </tr>`;
     }).join('');

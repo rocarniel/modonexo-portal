@@ -61,7 +61,7 @@ const API = {
   },
 };
 
-// ── Upload Cloudinary ────────────────────────────
+// ── Upload Cloudinary (assinado pelo worker — impede upload direto/anônimo) ──
 async function uploadCloudinary(file, folder = "modo") {
   const limitBytes = (folder === "modo-videos" ? CONFIG.limits.videoMB :
                       folder === "modo-docs"   ? CONFIG.limits.documentoMB :
@@ -72,12 +72,16 @@ async function uploadCloudinary(file, folder = "modo") {
     throw new Error(`Arquivo muito grande. Limite: ${mb} MB`);
   }
 
+  const assinatura = await apiRequest("POST", "/cloudinary/assinatura", { folder });
+
   const fd = new FormData();
   fd.append("file", file);
-  fd.append("upload_preset", CONFIG.cloudinary.preset);
-  fd.append("folder", folder);
+  fd.append("api_key", assinatura.apiKey);
+  fd.append("timestamp", assinatura.timestamp);
+  fd.append("signature", assinatura.signature);
+  fd.append("folder", assinatura.folder);
 
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${CONFIG.cloudinary.cloud}/auto/upload`, {
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${assinatura.cloudName}/auto/upload`, {
     method: "POST", body: fd,
   });
   if (!res.ok) throw new Error("Falha no upload do arquivo");
@@ -141,10 +145,6 @@ function formatMoeda(valor) {
 function formatData(d) {
   if (!d) return "—";
   return new Date(d + "T00:00:00").toLocaleDateString("pt-BR");
-}
-
-function gerarTokenLocal() {
-  return Math.random().toString(36).substr(2, 10) + Date.now().toString(36);
 }
 
 function escapeHtml(s) {

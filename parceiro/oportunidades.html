@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MODOnexo — Minhas Oportunidades</title>
-  <link rel="stylesheet" href="../css/style.css?v=202607010001">
+  <link rel="stylesheet" href="../css/style.css?v=202607020001">
 </head>
 <body>
 <div class="app-layout">
@@ -65,12 +65,12 @@
 </div>
 
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607010001"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607010001"></script>
-<script src="../js/config.js?v=202607010001"></script>
-<script src="../js/auth.js?v=202607010001"></script>
-<script src="../js/api.js?v=202607010001"></script>
-<script src="../js/layout.js?v=202607010001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607020001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607020001"></script>
+<script src="../js/config.js?v=202607020001"></script>
+<script src="../js/auth.js?v=202607020001"></script>
+<script src="../js/api.js?v=202607020001"></script>
+<script src="../js/layout.js?v=202607020001"></script>
 <script>
   firebase.initializeApp(CONFIG.firebase);
   document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_PARCEIRO, '/parceiro/oportunidades.html');
@@ -100,10 +100,10 @@
     tbody.innerHTML = ops.map(o => `
       <tr style="cursor:pointer" onclick="if(event.target.closest('button,a'))return;location.href='oportunidade.html?id=${o.id}'">
         <td>
-          <strong>${o.fields['Título'] || '—'}</strong><br>
-          <span style="font-size:12px;color:var(--text-muted)">${o.fields['Tipo de imóvel'] || ''}</span>
+          <strong>${escapeHtml(o.fields['Título'] || '—')}</strong><br>
+          <span style="font-size:12px;color:var(--text-muted)">${escapeHtml(o.fields['Tipo de imóvel'] || '')}</span>
         </td>
-        <td>${o.fields['Município'] || '—'}<br><span style="font-size:12px;color:var(--text-muted)">${o.fields['Estado'] || ''}</span></td>
+        <td>${escapeHtml(o.fields['Município'] || '—')}<br><span style="font-size:12px;color:var(--text-muted)">${escapeHtml(o.fields['Estado'] || '')}</span></td>
         <td>${(o.fields['Área total (m²)'] ?? o.fields['Área (m²)']) != null ? (o.fields['Área total (m²)'] ?? o.fields['Área (m²)']).toLocaleString('pt-BR') + ' m²' : '—'}</td>
         <td>${formatMoeda(o.fields['Valor pretendido (R$)'])}</td>
         <td>${badgeStatus(o.fields['Status'])}</td>

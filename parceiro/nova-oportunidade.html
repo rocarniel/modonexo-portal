@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MODOnexo — Nova Oportunidade</title>
-  <link rel="stylesheet" href="../css/style.css?v=202607010001">
+  <link rel="stylesheet" href="../css/style.css?v=202607020001">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     #mapPin { height: 300px; border-radius: 10px; border: 1.5px solid var(--border); margin-top: 8px; }
@@ -226,13 +226,13 @@
   <span style="color:var(--navy);font-size:14px">Enviando oportunidade…</span>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607010001"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607010001"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202607010001"></script>
-<script src="../js/config.js?v=202607010001"></script>
-<script src="../js/auth.js?v=202607010001"></script>
-<script src="../js/api.js?v=202607010001"></script>
-<script src="../js/layout.js?v=202607010001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607020001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607020001"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202607020001"></script>
+<script src="../js/config.js?v=202607020001"></script>
+<script src="../js/auth.js?v=202607020001"></script>
+<script src="../js/api.js?v=202607020001"></script>
+<script src="../js/layout.js?v=202607020001"></script>
 <script>
   firebase.initializeApp(CONFIG.firebase);
 
@@ -355,7 +355,7 @@
     if (imgs.length) {
       const existHtml = imgs.map((a, i) =>
         `<div class="img-existente" style="position:relative">
-          <img src="${a.url}" class="thumb" title="${a.nome}">
+          <img src="${escapeHtml(a.url)}" class="thumb" title="${escapeHtml(a.nome)}">
           <button type="button" onclick="removeImagemExistente(${i})" style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;border:none;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center">×</button>
         </div>`).join('');
       prev.insertAdjacentHTML('afterbegin', existHtml);
@@ -368,7 +368,7 @@
       lista.innerHTML = docs.map((a, i) =>
         `<div class="file-item" id="docExist-${i}" style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px">
           <span>📄</span>
-          <span class="file-name" style="flex:1;font-size:13px">${a.nome}</span>
+          <span class="file-name" style="flex:1;font-size:13px">${escapeHtml(a.nome)}</span>
           <button type="button" onclick="removeDocExistente(${i})" class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);white-space:nowrap">✕ Remover</button>
         </div>`).join('');
       container.style.display = 'block';
@@ -398,7 +398,7 @@
       lista.innerHTML = `
         <div class="file-item" style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px">
           <span>🗺️</span>
-          <span class="file-name" style="flex:1;font-size:13px">${nome}</span>
+          <span class="file-name" style="flex:1;font-size:13px">${escapeHtml(nome)}</span>
           <button type="button" onclick="removeKmzExistente()" class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);white-space:nowrap">✕ Remover</button>
         </div>`;
       container.style.display = 'block';

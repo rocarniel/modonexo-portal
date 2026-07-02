@@ -182,8 +182,8 @@ function camposOportunidade(payload, parceiro) {
     "Valor pretendido (R$)":    payload.valor       || null,
     "Comissão (%)":             payload.comissao != null ? payload.comissao / 100 : null,
     "Detalhes da comissão":     payload.detComissao || null,
-    "Link de vídeo":            payload.videoLink   || null,
-    "Link KMZ/KML":             payload.kmlLink     || null,
+    "Link de vídeo":            validarUrlSimples(payload.videoLink) ? payload.videoLink : null,
+    "Link KMZ/KML":             validarUrlSimples(payload.kmlLink)   ? payload.kmlLink   : null,
     "Observações":              payload.observacoes || null,
     "Latitude":                 payload.lat         || null,
     "Longitude":                payload.lng         || null,
@@ -199,6 +199,13 @@ function camposOportunidade(payload, parceiro) {
 
   // Remove nulls
   return Object.fromEntries(Object.entries(campos).filter(([, v]) => v !== null));
+}
+
+// ── Assinatura de upload Cloudinary (Red Team #9 — fecha upload direto/anônimo) ──
+async function gerarAssinaturaCloudinary(params, apiSecret) {
+  const stringToSign = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join("&") + apiSecret;
+  const hashBuffer = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(stringToSign));
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
 // ── Enviar email via Resend ───────────────────────
@@ -226,6 +233,7 @@ async function sendEmail(env, { to, subject, html }) {
 }
 
 // ── Criar usuário no Firebase (ignora "já existe") ──
+// Retorna true se a conta foi CRIADA agora (senha nova vale); false se já existia (senha não muda).
 async function criarUsuarioFirebase(env, email, senha) {
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${env.FIREBASE_API_KEY}`,
@@ -236,11 +244,65 @@ async function criarUsuarioFirebase(env, email, senha) {
     }
   );
   const data = await res.json();
-  // EMAIL_EXISTS não é erro — usuário já foi criado antes
-  if (!res.ok && data?.error?.message !== "EMAIL_EXISTS") {
+  if (res.ok) return true;
+  // EMAIL_EXISTS não é erro — usuário já foi criado antes (senha permanece a que já tinha)
+  if (data?.error?.message !== "EMAIL_EXISTS") {
     console.error("Firebase signUp error:", data?.error?.message);
   }
-  return true;
+  return false;
+}
+
+// ── Ativa parceiro: cria conta Firebase com senha aleatória e envia e-mail de boas-vindas.
+// Usado tanto pelo link de aprovação no e-mail quanto pelo webhook do Airtable (CRÍTICO 1).
+async function ativarParceiroEEnviarBoasVindas(env, nome, email) {
+  if (!email) return;
+  const senhaTemp = gerarSenhaTemp();
+  const criada = await criarUsuarioFirebase(env, email, senhaTemp);
+  if (!criada) return; // conta já existia — não sabemos a senha real, não reenviar credenciais erradas
+
+  const urlPortal = "https://modonexo.com.br";
+  const primeiroNome = (nome || "").split(" ")[0] || "parceiro";
+  await sendEmail(env, {
+    to: email,
+    subject: "Bem-vindo ao Portal MODOnexo! Seu acesso foi aprovado ✅",
+    html: `
+      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a1a2e">
+        <div style="background:#1a1a2e;padding:24px 32px;border-radius:12px 12px 0 0;text-align:center">
+          <h1 style="color:#fff;margin:0;font-size:22px">Portal MODOnexo</h1>
+          <p style="color:#94a3b8;margin:6px 0 0">Oportunidades imobiliárias exclusivas</p>
+        </div>
+        <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">
+          <h2 style="color:#16a34a;margin-top:0">Olá, ${esc(primeiroNome)}! Seja bem-vindo 👋</h2>
+          <p>Seu cadastro foi <strong>aprovado</strong> e você já faz parte da rede de parceiros da <strong>MODO - Planejamento e Gestão Imobiliária</strong>.</p>
+          <p>Através do portal você terá acesso a oportunidades imobiliárias exclusivas, captações, compartilhamento com clientes e muito mais.</p>
+          <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+          <p style="margin-bottom:16px;font-weight:600">Suas credenciais de acesso:</p>
+          <div style="background:#f8fafc;border-radius:10px;padding:20px 24px;margin-bottom:24px;border:1px solid #e2e8f0">
+            <table style="width:100%;border-collapse:collapse">
+              <tr>
+                <td style="padding:8px 0;color:#64748b;font-size:14px;width:80px">E-mail</td>
+                <td style="padding:8px 0;font-weight:600;font-size:14px">${esc(email)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#64748b;font-size:14px">Senha</td>
+                <td style="padding:8px 0;font-size:18px;font-weight:700;letter-spacing:2px;color:#1a1a2e">${esc(senhaTemp)}</td>
+              </tr>
+            </table>
+          </div>
+          <p style="color:#64748b;font-size:13px;margin-bottom:20px">Recomendamos alterar sua senha após o primeiro acesso. Use a opção "Esqueci minha senha" na tela de login.</p>
+          <div style="text-align:center;margin:24px 0">
+            <a href="${urlPortal}"
+               style="background:#1a1a2e;color:#fff;padding:14px 40px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">
+              Acessar o portal →
+            </a>
+          </div>
+          <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
+            MODO - Planejamento e Gestão Imobiliária · Portal MODOnexo<br>
+            Em caso de dúvidas, responda este e-mail.
+          </p>
+        </div>
+      </div>`,
+  });
 }
 
 function esc(s) {
@@ -262,6 +324,28 @@ function validarToken(t) {
 // Valida formato de record ID do Airtable (rec + 14 chars alfanuméricos)
 function validarRecordId(id) {
   return typeof id === "string" && /^rec[a-zA-Z0-9]{14}$/.test(id);
+}
+
+// Valida a estrutura de "arquivos" (imagens/documentos) antes de gravar no Airtable.
+// Impede XSS armazenado via url/nome forjados no corpo da requisição (Red Team #3).
+function validarArquivos(arquivos) {
+  if (!Array.isArray(arquivos)) return null;
+  if (arquivos.length > 40) return null;
+  const validos = [];
+  for (const item of arquivos) {
+    if (!item || typeof item !== "object") return null;
+    const { url, nome, tipo } = item;
+    if (typeof url !== "string" || !/^https:\/\/res\.cloudinary\.com\//.test(url)) return null;
+    if (typeof nome !== "string" || nome.length > 200 || /[<>]/.test(nome)) return null;
+    if (tipo !== "imagem" && tipo !== "documento") return null;
+    validos.push({ url, nome, tipo });
+  }
+  return validos;
+}
+
+// Valida links de vídeo/KMZ: precisa ser http(s) e sem caracteres de injeção (Red Team #3/#4)
+function validarUrlSimples(url) {
+  return typeof url === "string" && url.length <= 500 && /^https?:\/\//.test(url) && !/[<>"']/.test(url);
 }
 
 // Gera senha temporária: "user@" + 4 dígitos aleatórios (CRÍTICO 1)
@@ -304,6 +388,24 @@ function respostaRateLimit(retryAfterSec) {
     status: 429,
     headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(retryAfterSec) },
   });
+}
+
+// Comparação em tempo constante — evita vazar o secret por diferença de tempo de resposta (Red Team #8)
+function compararConstante(a, b) {
+  const bufA = new TextEncoder().encode(String(a || ""));
+  const bufB = new TextEncoder().encode(String(b || ""));
+  if (bufA.length !== bufB.length) return false;
+  let diff = 0;
+  for (let i = 0; i < bufA.length; i++) diff |= bufA[i] ^ bufB[i];
+  return diff === 0;
+}
+
+// Valida o secret de rotas administrativas: rate limit por IP + comparação constante (Red Team #8)
+async function validarSecretAdmin(request, env, secretRecebido) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const rl = await checkRateLimit(env, `secretadmin:${ip}`, 10, 3600);
+  if (!rl.ok) return { autorizado: false, respostaLimite: respostaRateLimit(rl.retryAfterSec) };
+  return { autorizado: compararConstante(secretRecebido, env.WEBHOOK_SECRET) };
 }
 
 // ── URLs de consulta CRECI por UF ────────────────────
@@ -417,7 +519,9 @@ export default {
     // Webhook: novo parceiro (tabela Parceiros)
     if (path === "/webhook/parceiro" && method === "POST") {
       const secret = url.searchParams.get("secret");
-      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
 
       await request.json(); // consumir body
       const webhookId = WEBHOOKS.parceiros;
@@ -436,9 +540,10 @@ export default {
         const fields = rec.fields || {};
         const status = fields["Status"];
         const email  = fields["E-Mail"] || "";
+        const nome   = fields["Nome Completo"] || "";
 
         if (status === "Ativo" && email) {
-          await criarUsuarioFirebase(env, email, "Modo@2030");
+          await ativarParceiroEEnviarBoasVindas(env, nome, email);
         }
       }
 
@@ -448,7 +553,9 @@ export default {
     // Webhook: nova oportunidade (tabela Oportunidades)
     if (path === "/webhook/oportunidade" && method === "POST") {
       const secret = url.searchParams.get("secret");
-      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
 
       await request.json(); // consumir body
       const webhookId = WEBHOOKS.oportunidades;
@@ -501,7 +608,9 @@ export default {
     if (path === "/aprovar/parceiro" && method === "GET") {
       const secret = url.searchParams.get("secret");
       const recordId = url.searchParams.get("recordId");
-      if (secret !== env.WEBHOOK_SECRET || !recordId) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado || !recordId) return errorResponse("Não autorizado", 401);
 
       const rec = await airtable(env, "PATCH", TBL.parceiros, recordId, {}, {
         fields: { "Status": "Ativo" },
@@ -509,54 +618,7 @@ export default {
       const nome  = rec.fields?.["Nome Completo"] || "";
       const email = rec.fields?.["E-Mail"] || "";
 
-      if (email) {
-        const senhaTemp = gerarSenhaTemp();
-        await criarUsuarioFirebase(env, email, senhaTemp);
-
-        const urlPortal = `https://modonexo.com.br`;
-        const primeiroNome = nome.split(" ")[0];
-        await sendEmail(env, {
-          to: email,
-          subject: "Bem-vindo ao Portal MODOnexo! Seu acesso foi aprovado ✅",
-          html: `
-            <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a1a2e">
-              <div style="background:#1a1a2e;padding:24px 32px;border-radius:12px 12px 0 0;text-align:center">
-                <h1 style="color:#fff;margin:0;font-size:22px">Portal MODOnexo</h1>
-                <p style="color:#94a3b8;margin:6px 0 0">Oportunidades imobiliárias exclusivas</p>
-              </div>
-              <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">
-                <h2 style="color:#16a34a;margin-top:0">Olá, ${primeiroNome}! Seja bem-vindo 👋</h2>
-                <p>Seu cadastro foi <strong>aprovado</strong> e você já faz parte da rede de parceiros da <strong>MODO - Planejamento e Gestão Imobiliária</strong>.</p>
-                <p>Através do portal você terá acesso a oportunidades imobiliárias exclusivas, captações, compartilhamento com clientes e muito mais.</p>
-                <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
-                <p style="margin-bottom:16px;font-weight:600">Suas credenciais de acesso:</p>
-                <div style="background:#f8fafc;border-radius:10px;padding:20px 24px;margin-bottom:24px;border:1px solid #e2e8f0">
-                  <table style="width:100%;border-collapse:collapse">
-                    <tr>
-                      <td style="padding:8px 0;color:#64748b;font-size:14px;width:80px">E-mail</td>
-                      <td style="padding:8px 0;font-weight:600;font-size:14px">${email}</td>
-                    </tr>
-                    <tr>
-                      <td style="padding:8px 0;color:#64748b;font-size:14px">Senha</td>
-                      <td style="padding:8px 0;font-size:18px;font-weight:700;letter-spacing:2px;color:#1a1a2e">${senhaTemp}</td>
-                    </tr>
-                  </table>
-                </div>
-                <p style="color:#64748b;font-size:13px;margin-bottom:20px">Recomendamos alterar sua senha após o primeiro acesso. Use a opção "Esqueci minha senha" na tela de login.</p>
-                <div style="text-align:center;margin:24px 0">
-                  <a href="${urlPortal}"
-                     style="background:#1a1a2e;color:#fff;padding:14px 40px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">
-                    Acessar o portal →
-                  </a>
-                </div>
-                <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
-                  MODO - Planejamento e Gestão Imobiliária · Portal MODOnexo<br>
-                  Em caso de dúvidas, responda este e-mail.
-                </p>
-              </div>
-            </div>`,
-        });
-      }
+      await ativarParceiroEEnviarBoasVindas(env, nome, email);
 
       const HTML_HEADERS = {
         "Content-Type": "text/html;charset=UTF-8",
@@ -576,7 +638,9 @@ export default {
     if (path === "/rejeitar/parceiro" && method === "GET") {
       const secret = url.searchParams.get("secret");
       const recordId = url.searchParams.get("recordId");
-      if (secret !== env.WEBHOOK_SECRET || !recordId) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado || !recordId) return errorResponse("Não autorizado", 401);
 
       const rec = await airtable(env, "PATCH", TBL.parceiros, recordId, {}, {
         fields: { "Status": "Suspenso" },
@@ -603,7 +667,9 @@ export default {
     // Diagnóstico / renovação manual de webhooks
     if (path === "/webhooks/listar" && method === "GET") {
       const secret = url.searchParams.get("secret");
-      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
       const r = await fetch(
         `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks`,
         { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
@@ -614,7 +680,9 @@ export default {
 
     if (path === "/webhooks/status" && method === "GET") {
       const secret = url.searchParams.get("secret");
-      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
       const results = [];
       for (const [nome, id] of Object.entries(WEBHOOKS)) {
         const r = await fetch(
@@ -629,14 +697,18 @@ export default {
 
     if (path === "/webhooks/renovar" && method === "GET") {
       const secret = url.searchParams.get("secret");
-      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
       await renovarWebhooks(env);
       return corsResponse({ ok: true, renovadoEm: new Date().toISOString() });
     }
 
     if (path === "/webhooks/recriar" && method === "GET") {
       const secret = url.searchParams.get("secret");
-      if (secret !== env.WEBHOOK_SECRET) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
       const resultado = await recriarWebhooks(env);
       return corsResponse(resultado);
     }
@@ -644,7 +716,9 @@ export default {
     if (path === "/webhooks/deletar" && method === "GET") {
       const secret = url.searchParams.get("secret");
       const id     = url.searchParams.get("id");
-      if (secret !== env.WEBHOOK_SECRET || !id) return errorResponse("Não autorizado", 401);
+      const _sv = await validarSecretAdmin(request, env, secret);
+      if (_sv.respostaLimite) return _sv.respostaLimite;
+      if (!_sv.autorizado || !id) return errorResponse("Não autorizado", 401);
       const r = await fetch(
         `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${id}`,
         { method: "DELETE", headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
@@ -756,6 +830,10 @@ export default {
       if (!body) return errorResponse("Corpo da requisição inválido", 400);
       if (!body.nome || !body.whatsapp || !body.token) return errorResponse("Dados incompletos");
       if (!validarToken(body.token)) return errorResponse("Token inválido", 400);
+      // Validação de conteúdo (Red Team #2 — XSS armazenado via captura pública de leads)
+      if (body.nome.length > 120 || body.whatsapp.length > 30) return errorResponse("Campo excede tamanho permitido", 400);
+      if (/[<>]/.test(body.nome)) return errorResponse("Nome contém caracteres inválidos", 400);
+      if (!/^[\d\s()+-]+$/.test(body.whatsapp)) return errorResponse("WhatsApp inválido", 400);
 
       // Buscar oportunidade pelo token
       const opData = await airtable(env, "GET", TBL.oportunidades, "", {
@@ -848,6 +926,23 @@ export default {
     const user = await verifyFirebaseToken(authHeader.slice(7), env);
     if (!user) return errorResponse("Token inválido", 401);
 
+    // Assinatura de upload — exige login, evita upload direto/anônimo no Cloudinary (Red Team #9)
+    if (path === "/cloudinary/assinatura" && method === "POST") {
+      const rl = await checkRateLimit(env, `upload:${user.email}`, 60, 3600);
+      if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
+      const body = await parseBody(request);
+      if (!body) return errorResponse("Corpo da requisição inválido", 400);
+      const foldersValidos = new Set(["modo-imagens", "modo-docs", "modo-kmz"]);
+      const folder = foldersValidos.has(body.folder) ? body.folder : "modo-imagens";
+      const timestamp = Math.floor(Date.now() / 1000);
+      const signature = await gerarAssinaturaCloudinary({ folder, timestamp }, env.CLOUDINARY_API_SECRET);
+      return corsResponse({
+        signature, timestamp, folder,
+        apiKey: env.CLOUDINARY_API_KEY,
+        cloudName: "dlyebtufy",
+      });
+    }
+
     // ── Oportunidades ──────────────────────────────
 
     if (path === "/oportunidades" && method === "GET") {
@@ -876,6 +971,16 @@ export default {
     if (path === "/oportunidades" && method === "POST") {
       const body = await parseBody(request);
       if (!body) return errorResponse("Corpo da requisição inválido", 400);
+      if (body.arquivos) {
+        const arquivosValidos = validarArquivos(body.arquivos);
+        if (!arquivosValidos) return errorResponse("Arquivos em formato inválido", 400);
+        body.arquivos = arquivosValidos;
+      }
+      // Parceiro não-admin não escolhe de quem é a oportunidade nem sua origem (Red Team #6)
+      if (!user.admin) {
+        body.emailParceiro = user.email;
+        body.origem = "Parceiro";
+      }
       const parceiro = user.admin ? null : await getParceiroPorEmail(env, user.email);
       const campos   = camposOportunidade(body, parceiro);
       const record   = await airtable(env, "POST", TBL.oportunidades, "", {}, { fields: campos });
@@ -944,13 +1049,23 @@ export default {
           if (body.valor          != null) campos["Valor pretendido (R$)"] = body.valor;
           if (body.comissao       != null) campos["Comissão (%)"]         = body.comissao / 100;
           if (body.detComissao)           campos["Detalhes da comissão"]  = body.detComissao;
-          if (body.videoLink)             campos["Link de vídeo"]         = body.videoLink;
-          if (body.kmlLink)               campos["Link KMZ/KML"]         = body.kmlLink;
+          if (body.videoLink) {
+            if (!validarUrlSimples(body.videoLink)) return errorResponse("Link de vídeo inválido", 400);
+            campos["Link de vídeo"] = body.videoLink;
+          }
+          if (body.kmlLink) {
+            if (!validarUrlSimples(body.kmlLink)) return errorResponse("Link KMZ/KML inválido", 400);
+            campos["Link KMZ/KML"] = body.kmlLink;
+          }
           if (body.lat != null)           campos["Latitude"]             = body.lat;
           if (body.lng != null)           campos["Longitude"]            = body.lng;
           campos["Observações"] = body.observacoes || "";
         }
-        if (body.arquivos) campos["Arquivos (JSON)"] = JSON.stringify(body.arquivos);
+        if (body.arquivos) {
+          const arquivosValidos = validarArquivos(body.arquivos);
+          if (!arquivosValidos) return errorResponse("Arquivos em formato inválido", 400);
+          campos["Arquivos (JSON)"] = JSON.stringify(arquivosValidos);
+        }
 
         // ── Log de auditoria — usa o `atual` já obtido acima (sem segundo GET) ──
         if (ehEdicaoCompleta || body.status || body.arquivos) {
@@ -1012,7 +1127,10 @@ export default {
     // Gerar token de compartilhamento
     const compartilharMatch = path.match(/^\/oportunidades\/([^/]+)\/compartilhar$/);
     if (compartilharMatch && method === "POST") {
-      const id    = compartilharMatch[1];
+      const id = compartilharMatch[1];
+      // Impede que qualquer parceiro autenticado regenere o token de oportunidade alheia (Red Team #5)
+      try { await verificarAcessoOportunidade(env, user, id); }
+      catch (e) { return errorResponse(e.message, e.status || 400); }
       const token = gerarToken();
       await airtable(env, "PATCH", TBL.oportunidades, id, {}, {
         fields: { "Token de compartilhamento": token },

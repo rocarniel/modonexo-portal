@@ -7,7 +7,7 @@
   <meta property="og:title"       content="Oportunidade Imobiliária">
   <meta property="og:description" content="Acesse para ver detalhes completos, fotos e documentação.">
   <meta property="og:type"        content="website">
-  <link rel="stylesheet" href="../css/style.css?v=202607010001">
+  <link rel="stylesheet" href="../css/style.css?v=202607020001">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     body { background: var(--bg); }
@@ -137,10 +137,10 @@
   <img id="lightboxImg" src="">
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202607010001"></script>
-<script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js?v=202607010001"></script>
-<script src="../js/config.js?v=202607010001"></script>
-<script src="../js/api.js?v=202607010001"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202607020001"></script>
+<script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js?v=202607020001"></script>
+<script src="../js/config.js?v=202607020001"></script>
+<script src="../js/api.js?v=202607020001"></script>
 <script>
   // Sem Firebase nesta página — override para não quebrar api.js
   async function getIdToken() { return null; }
@@ -215,7 +215,7 @@
     ].filter(([,v]) => v).map(([l,v]) => `
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted)">${l}</div>
-        <div style="font-size:16px;font-weight:bold;color:var(--navy)">${v}</div>
+        <div style="font-size:16px;font-weight:bold;color:var(--navy)">${escapeHtml(String(v))}</div>
       </div>`).join('');
 
     // Mapa
@@ -230,8 +230,12 @@
     // Imagens
     if (f['_imagens']?.length) {
       document.getElementById('cardImagens').style.display = '';
-      document.getElementById('galeriaImagens').innerHTML  = f['_imagens'].map(url =>
-        `<img src="${url}" onclick="abrirLightbox('${url}')" alt="">`).join('');
+      const galeriaEl = document.getElementById('galeriaImagens');
+      galeriaEl.innerHTML = f['_imagens'].map(url =>
+        `<img src="${escapeHtml(url)}" data-url="${escapeHtml(url)}" alt="">`).join('');
+      galeriaEl.querySelectorAll('img').forEach(img => {
+        img.addEventListener('click', () => abrirLightbox(img.dataset.url));
+      });
     }
 
     // Vídeo

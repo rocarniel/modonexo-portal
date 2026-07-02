@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MODOnexo — Mapa</title>
-  <link rel="stylesheet" href="../css/style.css?v=202607010001">
+  <link rel="stylesheet" href="../css/style.css?v=202607020001">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     #map { height: calc(100vh - 130px); border-radius: var(--radius); }
@@ -124,14 +124,14 @@
   </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607010001"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607010001"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202607010001"></script>
-<script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js?v=202607010001"></script>
-<script src="../js/config.js?v=202607010001"></script>
-<script src="../js/auth.js?v=202607010001"></script>
-<script src="../js/api.js?v=202607010001"></script>
-<script src="../js/layout.js?v=202607010001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607020001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607020001"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?v=202607020001"></script>
+<script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js?v=202607020001"></script>
+<script src="../js/config.js?v=202607020001"></script>
+<script src="../js/auth.js?v=202607020001"></script>
+<script src="../js/api.js?v=202607020001"></script>
+<script src="../js/layout.js?v=202607020001"></script>
 <script>
   firebase.initializeApp(CONFIG.firebase);
   document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/mapa.html');
@@ -201,10 +201,10 @@
       if (lat && lng) {
         const m = L.marker([lat, lng], { icon: iconeStatus(f['Status']) });
         m.bindPopup(`
-          <div class="popup-title">${f['Título'] || 'Sem título'}</div>
+          <div class="popup-title">${escapeHtml(f['Título'] || 'Sem título')}</div>
           <div class="popup-meta">
-            📍 ${f['Município'] || '—'}/${f['Estado'] || '—'}<br>
-            🏷️ ${f['Tipo de imóvel'] || '—'} · ${f['Tipo de negócio'] || '—'}<br>
+            📍 ${escapeHtml(f['Município'] || '—')}/${escapeHtml(f['Estado'] || '—')}<br>
+            🏷️ ${escapeHtml(f['Tipo de imóvel'] || '—')} · ${escapeHtml(f['Tipo de negócio'] || '—')}<br>
             💰 ${formatMoeda(f['Valor pretendido (R$)'])}<br>
             ${f['Área (m²)'] ? `📐 ${f['Área (m²)'].toLocaleString('pt-BR')} m²<br>` : ''}
             ${badgeStatus(f['Status'])}
@@ -242,10 +242,10 @@
     tbody.innerHTML = ops.map(o => {
       const f = o.fields;
       return `<tr style="cursor:pointer" onclick="location.href='oportunidade.html?id=${o.id}'">
-        <td><strong>${f['Título'] || '—'}</strong></td>
-        <td style="font-size:13px">${(f['Nome Completo (from Parceiros)'] || ['—'])[0]}</td>
-        <td>${f['Tipo de imóvel'] || '—'}</td>
-        <td>${f['Município'] || '—'}/${f['Estado'] || '—'}</td>
+        <td><strong>${escapeHtml(f['Título'] || '—')}</strong></td>
+        <td style="font-size:13px">${escapeHtml((f['Nome Completo (from Parceiros)'] || ['—'])[0])}</td>
+        <td>${escapeHtml(f['Tipo de imóvel'] || '—')}</td>
+        <td>${escapeHtml(f['Município'] || '—')}/${escapeHtml(f['Estado'] || '—')}</td>
         <td>${f['Área (m²)'] ? f['Área (m²)'].toLocaleString('pt-BR') + ' m²' : '—'}</td>
         <td>${formatMoeda(f['Valor pretendido (R$)'])}</td>
         <td>${badgeStatus(f['Status'])}</td>

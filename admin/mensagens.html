@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MODOnexo — Mensagens</title>
-  <link rel="stylesheet" href="../css/style.css?v=202607010001">
+  <link rel="stylesheet" href="../css/style.css?v=202607020001">
 </head>
 <body>
 <div class="app-layout">
@@ -24,12 +24,12 @@
   </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607010001"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607010001"></script>
-<script src="../js/config.js?v=202607010001"></script>
-<script src="../js/auth.js?v=202607010001"></script>
-<script src="../js/api.js?v=202607010001"></script>
-<script src="../js/layout.js?v=202607010001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607020001"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607020001"></script>
+<script src="../js/config.js?v=202607020001"></script>
+<script src="../js/auth.js?v=202607020001"></script>
+<script src="../js/api.js?v=202607020001"></script>
+<script src="../js/layout.js?v=202607020001"></script>
 <script>
   firebase.initializeApp(CONFIG.firebase);
   document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/mensagens.html');
@@ -68,8 +68,8 @@
           <a href="oportunidade.html?id=${o.id}" style="display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--border);text-decoration:none;color:inherit">
             <div style="width:40px;height:40px;border-radius:50%;background:${naoLidasOp > 0 ? '#ef4444' : 'var(--navy)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">💬</div>
             <div style="flex:1;min-width:0">
-              <div style="font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.fields['Título'] || '—'}</div>
-              <div style="font-size:12px;color:var(--text-muted)">${parceiro} · ${total} mensagem${total !== 1 ? 's' : ''}</div>
+              <div style="font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(o.fields['Título'] || '—')}</div>
+              <div style="font-size:12px;color:var(--text-muted)">${escapeHtml(parceiro)} · ${total} mensagem${total !== 1 ? 's' : ''}</div>
             </div>
             ${naoLidasOp > 0
               ? `<span style="background:#ef4444;color:#fff;font-size:12px;font-weight:700;border-radius:12px;padding:3px 9px;flex-shrink:0">${naoLidasOp} nova${naoLidasOp > 1 ? 's' : ''}</span>`

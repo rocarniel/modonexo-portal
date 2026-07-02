@@ -11,12 +11,6 @@ const CONFIG = {
   // Cloudflare Worker (obtenha após publicar o worker)
   workerUrl: "https://modonexo-worker.modonexo.workers.dev",
 
-  // Cloudinary (para upload de imagens e PDFs)
-  cloudinary: {
-    cloud:  "dlyebtufy",
-    preset: "raxqbfzt",
-  },
-
   // Domínio público do portal
   portalUrl: "https://www.modonexo.com.br",
 
