@@ -9,7 +9,8 @@ const CONFIG = {
   },
 
   // Cloudflare Worker (obtenha após publicar o worker)
-  workerUrl: "https://modonexo-worker.modonexo.workers.dev",
+  // TEMPORÁRIO: apontando para staging durante testes da migração D1 — reverter antes do cutover
+  workerUrl: "https://modonexo-worker-staging.modonexo.workers.dev",
 
   // Domínio público do portal
   portalUrl: "https://www.modonexo.com.br",
