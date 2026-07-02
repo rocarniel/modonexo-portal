@@ -398,6 +398,33 @@ async function criarUsuarioFirebase(env, email, senha) {
   return false;
 }
 
+// ── Exclui a conta Firebase de um parceiro (usado na exclusão definitiva) ──
+// Best-effort: se falhar, apenas loga — não deve travar a exclusão dos dados no D1.
+async function excluirUsuarioFirebase(env, email) {
+  const accessToken = await obterAccessTokenAdmin(env);
+  if (!accessToken) return false;
+
+  const lookupRes = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ email: [email], targetProjectId: "modonexo-d8eff" }),
+  });
+  const lookupData = await lookupRes.json();
+  const localId = lookupData?.users?.[0]?.localId;
+  if (!localId) return false; // conta não existe (ou já foi removida antes)
+
+  const delRes = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ localId, targetProjectId: "modonexo-d8eff" }),
+  });
+  if (!delRes.ok) {
+    console.error("Firebase delete error:", await delRes.text());
+    return false;
+  }
+  return true;
+}
+
 // ── Ativa parceiro: cria conta Firebase com senha aleatória e envia e-mail de boas-vindas.
 // Chamado diretamente de PATCH /parceiros/:id e de /aprovar/parceiro (um único caminho de ativação).
 async function ativarParceiroEEnviarBoasVindas(env, nome, email) {
@@ -1089,6 +1116,8 @@ async function handleRequest(request, env) {
     return corsResponse({ records });
   }
 
+  const STATUS_PARCEIRO_VALIDO = new Set(["Pendente", "Ativo", "Inativo", "Suspenso"]);
+
   const parceiroMatch = path.match(/^\/parceiros\/([^/]+)$/);
   if (parceiroMatch && method === "PATCH" && user.admin) {
     const id = parceiroMatch[1];
@@ -1096,6 +1125,7 @@ async function handleRequest(request, env) {
     const body = await parseBody(request);
     if (!body) return errorResponse("Corpo da requisição inválido", 400);
     if (!body.status) return errorResponse("Nada para atualizar", 400);
+    if (!STATUS_PARCEIRO_VALIDO.has(body.status)) return errorResponse("Status inválido", 400);
 
     await env.DB.prepare(
       "UPDATE parceiros SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
@@ -1109,6 +1139,74 @@ async function handleRequest(request, env) {
     }
 
     return corsResponse(rowToRecord("parceiros", atualizado));
+  }
+
+  // Exclusão definitiva: arquiva tudo do parceiro (oportunidades, mensagens, finalidades,
+  // leads) numa "caixa preta" e depois apaga fisicamente os dados + a conta Firebase.
+  const parceiroDefinitivoMatch = path.match(/^\/parceiros\/([^/]+)\/definitivo$/);
+  if (parceiroDefinitivoMatch && method === "DELETE" && user.admin) {
+    const id = parceiroDefinitivoMatch[1];
+    if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
+
+    const parceiro = await env.DB.prepare("SELECT * FROM parceiros WHERE id = ?").bind(id).first();
+    if (!parceiro) return errorResponse("Parceiro não encontrado", 404);
+
+    const { results: oportunidades } = await env.DB.prepare(
+      "SELECT * FROM oportunidades WHERE parceiro_id = ?"
+    ).bind(id).all();
+    const opIds = oportunidades.map(o => o.id);
+
+    let mensagens = [], finalidades = [], leads = [];
+    if (opIds.length) {
+      const placeholders = opIds.map(() => "?").join(",");
+      [mensagens, finalidades, leads] = await Promise.all([
+        env.DB.prepare(`SELECT * FROM mensagens WHERE oportunidade_id IN (${placeholders})`).bind(...opIds).all().then(r => r.results),
+        env.DB.prepare(`SELECT * FROM oportunidade_finalidades WHERE oportunidade_id IN (${placeholders})`).bind(...opIds).all().then(r => r.results),
+        env.DB.prepare(`SELECT * FROM leads WHERE oportunidade_id IN (${placeholders})`).bind(...opIds).all().then(r => r.results),
+      ]);
+    }
+
+    const snapshot = { parceiro, oportunidades, mensagens, finalidades, leads };
+    const caixaId = gerarRecordId();
+    await env.DB.prepare(
+      "INSERT INTO caixa_preta (id, parceiro_id_original, nome_completo, email, dados_json, excluido_por) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(caixaId, id, parceiro.nome_completo, parceiro.email, JSON.stringify(snapshot), user.email).run();
+
+    // DELETE em oportunidades cascateia mensagens e finalidades (foreign_keys ativo no D1).
+    // leads usa ON DELETE SET NULL, então é apagado à parte para não deixar resto.
+    if (opIds.length) {
+      const placeholders = opIds.map(() => "?").join(",");
+      await env.DB.batch([
+        env.DB.prepare(`DELETE FROM leads WHERE oportunidade_id IN (${placeholders})`).bind(...opIds),
+        env.DB.prepare(`DELETE FROM oportunidades WHERE parceiro_id = ?`).bind(id),
+      ]);
+    }
+    await env.DB.prepare("DELETE FROM parceiros WHERE id = ?").bind(id).run();
+
+    const firebaseExcluido = await excluirUsuarioFirebase(env, parceiro.email);
+
+    return corsResponse({
+      ok: true,
+      arquivado: caixaId,
+      oportunidadesArquivadas: opIds.length,
+      contaFirebaseExcluida: firebaseExcluido,
+    });
+  }
+
+  // ── Caixa preta (parceiros excluídos definitivamente) ──
+
+  if (path === "/caixa-preta" && method === "GET" && user.admin) {
+    const { results } = await env.DB.prepare(
+      "SELECT id, parceiro_id_original, nome_completo, email, excluido_em, excluido_por FROM caixa_preta ORDER BY excluido_em DESC"
+    ).all();
+    return corsResponse({ records: results });
+  }
+
+  const caixaPretaMatch = path.match(/^\/caixa-preta\/([^/]+)$/);
+  if (caixaPretaMatch && method === "GET" && user.admin) {
+    const row = await env.DB.prepare("SELECT * FROM caixa_preta WHERE id = ?").bind(caixaPretaMatch[1]).first();
+    if (!row) return errorResponse("Registro não encontrado", 404);
+    return corsResponse({ ...row, dados_json: JSON.parse(row.dados_json) });
   }
 
   // ── Avisos ─────────────────────────────────────

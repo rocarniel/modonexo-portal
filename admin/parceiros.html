@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MODOnexo — Parceiros</title>
-  <link rel="stylesheet" href="../css/style.css?v=202607021500">
+  <link rel="stylesheet" href="../css/style.css?v=202607021600">
 </head>
 <body>
 <div class="app-layout">
@@ -67,12 +67,41 @@
   </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607021500"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607021500"></script>
-<script src="../js/config.js?v=202607021500"></script>
-<script src="../js/auth.js?v=202607021500"></script>
-<script src="../js/api.js?v=202607021500"></script>
-<script src="../js/layout.js?v=202607021500"></script>
+<!-- Modal exclusão definitiva -->
+<div class="modal-overlay hidden" id="modalExclusao">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" style="color:#dc2626">⚠️ Excluir parceiro definitivamente</span>
+      <button class="modal-close" onclick="fecharModalExclusao()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:15px;font-weight:bold;color:var(--navy);margin-bottom:8px" id="exclusaoNome"></p>
+      <p style="font-size:13px;color:#475569;margin-bottom:16px">
+        Isso vai <strong>apagar definitivamente</strong> este parceiro, todas as suas oportunidades,
+        mensagens, finalidades e leads vinculados, além de excluir o acesso dele ao portal (conta Firebase).
+      </p>
+      <p style="font-size:13px;color:#475569;margin-bottom:16px">
+        Antes de apagar, tudo é <strong>arquivado na Caixa Preta</strong> (dados preservados para consulta futura,
+        mas o parceiro deixa de existir no sistema ativo).
+      </p>
+      <div class="form-group">
+        <label>Para confirmar, digite <strong>EXCLUIR</strong> abaixo</label>
+        <input type="text" id="confirmaExclusaoTexto" placeholder="EXCLUIR" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="fecharModalExclusao()">Cancelar</button>
+      <button class="btn" style="background:#dc2626;color:#fff" onclick="confirmarExclusaoDefinitiva()">Excluir definitivamente</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js?v=202607021600"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js?v=202607021600"></script>
+<script src="../js/config.js?v=202607021600"></script>
+<script src="../js/auth.js?v=202607021600"></script>
+<script src="../js/api.js?v=202607021600"></script>
+<script src="../js/layout.js?v=202607021600"></script>
 <script>
   firebase.initializeApp(CONFIG.firebase);
   document.getElementById('sidebarMount').innerHTML      = renderSidebar(NAV_ADMIN, '/admin/parceiros.html');
@@ -107,9 +136,12 @@
         <td>${formatData(f['Data de cadastro'])}</td>
         <td>${badgeStatus(f['Status'])}</td>
         <td><span class="badge badge-analise">${ops}</span></td>
-        <td>
+        <td style="display:flex;gap:6px">
           <button class="btn btn-sm btn-outline" onclick="abrirModal('${p.id}','${H(f['Nome Completo'] || '')}','${H(f['Status'] || 'Pendente')}')">
             Alterar status
+          </button>
+          <button class="btn btn-sm btn-outline" style="color:#dc2626;border-color:#dc2626" onclick="abrirModalExclusao('${p.id}','${H(f['Nome Completo'] || '')}','${H(f['E-Mail'] || '')}')">
+            Excluir
           </button>
         </td>
       </tr>`;
@@ -139,6 +171,31 @@
       // Atualiza localmente
       const p = todos.find(x => x.id === idEditando);
       if (p) p.fields['Status'] = novo;
+      filtrar();
+    } catch (err) { showToast('Erro: ' + err.message, 'error'); }
+  }
+
+  let idExcluindo = null;
+
+  function abrirModalExclusao(id, nome, email) {
+    idExcluindo = id;
+    document.getElementById('exclusaoNome').textContent = nome + ' — ' + email;
+    document.getElementById('confirmaExclusaoTexto').value = '';
+    document.getElementById('modalExclusao').classList.remove('hidden');
+  }
+
+  function fecharModalExclusao() { document.getElementById('modalExclusao').classList.add('hidden'); }
+
+  async function confirmarExclusaoDefinitiva() {
+    if (document.getElementById('confirmaExclusaoTexto').value.trim().toUpperCase() !== 'EXCLUIR') {
+      showToast('Digite EXCLUIR para confirmar.', 'error');
+      return;
+    }
+    try {
+      const res = await API.parceiros.excluirDefinitivo(idExcluindo);
+      showToast(`Parceiro excluído. ${res.oportunidadesArquivadas} oportunidade(s) arquivada(s) na Caixa Preta.`, 'success');
+      fecharModalExclusao();
+      todos = todos.filter(x => x.id !== idExcluindo);
       filtrar();
     } catch (err) { showToast('Erro: ' + err.message, 'error'); }
   }

@@ -31,11 +31,17 @@ const API = {
     listar:    ()          => apiRequest("GET", "/parceiros"),
     atualizar: (id, data)  => apiRequest("PATCH", "/parceiros/" + id, data),
     cadastrar: (data)      => apiRequest("POST", "/parceiros/publico", data),
+    excluirDefinitivo: (id) => apiRequest("DELETE", "/parceiros/" + id + "/definitivo"),
   },
 
   avisos: {
     listar: ()       => apiRequest("GET", "/avisos"),
     criar:  (data)   => apiRequest("POST", "/avisos", data),
+  },
+
+  caixaPreta: {
+    listar: ()     => apiRequest("GET", "/caixa-preta"),
+    obter:  (id)   => apiRequest("GET", "/caixa-preta/" + id),
   },
 
   demandas: {
