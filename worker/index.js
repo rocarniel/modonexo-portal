@@ -300,17 +300,96 @@ async function sendEmail(env, { to, subject, html }) {
   }
 }
 
-// ── Criar usuário no Firebase (ignora "já existe") ──
-// Retorna true se a conta foi CRIADA agora (senha nova vale); false se já existia.
-async function criarUsuarioFirebase(env, email, senha) {
-  const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${env.FIREBASE_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password: senha, returnSecureToken: false }),
-    }
+// ── Autenticação de conta de serviço (Admin) para criar usuários mesmo com
+// autocadastro público desabilitado no Firebase (ver ADMIN_ONLY_OPERATION) ──
+
+function base64UrlEncode(data) {
+  const bytes = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function pemParaArrayBuffer(pem) {
+  const b64 = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s+/g, "");
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// Assina um JWT de conta de serviço e troca por um access token OAuth2 (cacheado no KV).
+async function obterAccessTokenAdmin(env) {
+  const cacheKey = "firebase_admin_access_token";
+  const cache = await env.RATE_LIMIT.get(cacheKey, { type: "json" });
+  if (cache && cache.expiraEm > Date.now() + 60000) return cache.token;
+
+  const agora = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claims = {
+    iss: env.FIREBASE_SA_EMAIL,
+    scope: "https://www.googleapis.com/auth/identitytoolkit",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: agora,
+    exp: agora + 3600,
+  };
+  const naoAssinado = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(claims))}`;
+
+  const chave = await crypto.subtle.importKey(
+    "pkcs8",
+    pemParaArrayBuffer(env.FIREBASE_SA_PRIVATE_KEY),
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
   );
+  const assinatura = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    chave,
+    new TextEncoder().encode(naoAssinado)
+  );
+  const jwt = `${naoAssinado}.${base64UrlEncode(assinatura)}`;
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+  if (!res.ok) {
+    console.error("Falha ao trocar JWT por access token:", res.status, await res.text());
+    return null;
+  }
+  const data = await res.json();
+  await env.RATE_LIMIT.put(cacheKey, JSON.stringify({
+    token: data.access_token,
+    expiraEm: Date.now() + (data.expires_in || 3600) * 1000,
+  }), { expirationTtl: (data.expires_in || 3600) - 60 });
+  return data.access_token;
+}
+
+// ── Criar usuário no Firebase via Admin API (ignora "já existe") ──
+// Retorna true se a conta foi CRIADA agora (senha nova vale); false se já existia ou falhou.
+async function criarUsuarioFirebase(env, email, senha) {
+  const accessToken = await obterAccessTokenAdmin(env);
+  if (!accessToken) return false;
+
+  const res = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      email, password: senha,
+      targetProjectId: "modonexo-d8eff",
+      returnSecureToken: false,
+    }),
+  });
   const data = await res.json();
   if (res.ok) return true;
   if (data?.error?.message !== "EMAIL_EXISTS") {
