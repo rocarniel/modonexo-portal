@@ -98,6 +98,11 @@ const ESTADO_MAP = {
   RR:"Roraima",SC:"Santa Catarina",SP:"São Paulo",SE:"Sergipe",TO:"Tocantins",
 };
 const FINALIDADE_VALIDA = new Set(["Venda","Locação","Permuta","Parceria","Lançamento","Incorporação","Loteamento"]);
+// Mesmo conjunto do CHECK constraint de oportunidades.tipo_imovel — validado aqui
+// para responder 400 limpo em vez de deixar o INSERT/UPDATE estourar no D1.
+const TIPO_IMOVEL_VALIDO = new Set([
+  "Casa residencial","Terreno/Lote urbano","Sala comercial","Gleba rural","Apartamento","Área para loteamento",
+]);
 
 // ── Camada de serialização D1 <-> formato de API (chaves em português) ──
 const FIELD_MAPS = {
@@ -530,18 +535,28 @@ async function parseBody(request) {
 }
 
 // Rate limit por chave usando KV. Retorna { ok, retryAfterSec }.
+// UPSERT atômico no D1 — uma única instrução SQL, sem o get-then-put não-atômico
+// que o KV tinha (que permitia bypass sob requisições paralelas).
 async function checkRateLimit(env, key, maxTentativas, janelaSegundos) {
   const agora = Date.now();
-  const atual = await env.RATE_LIMIT.get(key, { type: "json" });
-  if (!atual || agora - atual.inicio > janelaSegundos * 1000) {
-    await env.RATE_LIMIT.put(key, JSON.stringify({ inicio: agora, contagem: 1 }), { expirationTtl: janelaSegundos });
-    return { ok: true };
+  const janelaMs = janelaSegundos * 1000;
+  const row = await env.DB.prepare(`
+    INSERT INTO rate_limits (chave, contagem, inicio) VALUES (?1, 1, ?2)
+    ON CONFLICT(chave) DO UPDATE SET
+      contagem = CASE WHEN ?2 - inicio > ?3 THEN 1 ELSE contagem + 1 END,
+      inicio   = CASE WHEN ?2 - inicio > ?3 THEN ?2 ELSE inicio END
+    RETURNING contagem, inicio
+  `).bind(key, agora, janelaMs).first();
+
+  // Limpeza oportunista de chaves antigas (D1 não expira linhas como o KV fazia).
+  if (Math.random() < 0.01) {
+    await env.DB.prepare("DELETE FROM rate_limits WHERE inicio < ?").bind(agora - 24 * 60 * 60 * 1000).run();
   }
-  if (atual.contagem >= maxTentativas) {
-    const retryAfterSec = Math.ceil((janelaSegundos * 1000 - (agora - atual.inicio)) / 1000);
+
+  if (row.contagem > maxTentativas) {
+    const retryAfterSec = Math.max(1, Math.ceil((janelaMs - (agora - row.inicio)) / 1000));
     return { ok: false, retryAfterSec };
   }
-  await env.RATE_LIMIT.put(key, JSON.stringify({ inicio: atual.inicio, contagem: atual.contagem + 1 }), { expirationTtl: janelaSegundos });
   return { ok: true };
 }
 
@@ -608,27 +623,51 @@ async function handleRequest(request, env) {
 
   // ── Aprovar / Rejeitar parceiro por link no email (secret próprio, sem Firebase) ──
 
+  const HTML_HEADERS = {
+    "Content-Type": "text/html;charset=UTF-8",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+  };
+
+  // Página intermediária de confirmação — protege contra bots de e-mail (ex.: Safe
+  // Links) que pré-buscam todo link recebido antes do humano abrir a mensagem. Sem
+  // isso, o simples fetch automático do bot aprovaria/rejeitaria o parceiro sozinho.
+  function paginaConfirmacao(titulo, pergunta, urlConfirmar, corBotao) {
+    return new Response(`
+      <html><body style="font-family:sans-serif;text-align:center;padding:60px">
+        <h2>${titulo}</h2>
+        <p style="color:#666;margin-bottom:28px">${pergunta}</p>
+        <a href="${urlConfirmar}" style="background:${corBotao};color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">Confirmar</a>
+      </body></html>`, { headers: HTML_HEADERS });
+  }
+
   if (path === "/aprovar/parceiro" && method === "GET") {
     const secret    = url.searchParams.get("secret");
     const recordId  = url.searchParams.get("recordId");
+    const confirmar = url.searchParams.get("confirmar") === "1";
     const _sv = await validarSecretAdmin(request, env, secret);
     if (_sv.respostaLimite) return _sv.respostaLimite;
     if (!_sv.autorizado || !recordId || !validarRecordId(recordId)) return errorResponse("Não autorizado", 401);
 
-    await env.DB.prepare(
-      "UPDATE parceiros SET status = 'Ativo', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
-    ).bind(recordId).run();
     const rec = await env.DB.prepare("SELECT * FROM parceiros WHERE id = ?").bind(recordId).first();
     if (!rec) return errorResponse("Parceiro não encontrado", 404);
 
+    if (!confirmar) {
+      const urlConfirmar = `${workerOrigin}/aprovar/parceiro?recordId=${recordId}&secret=${secret}&confirmar=1`;
+      return paginaConfirmacao(
+        "Aprovar parceiro?",
+        `Confirma a aprovação de <strong>${esc(rec.nome_completo)}</strong>? Uma conta de acesso será criada e um e-mail de boas-vindas será enviado.`,
+        urlConfirmar, "#16a34a"
+      );
+    }
+
+    await env.DB.prepare(
+      "UPDATE parceiros SET status = 'Ativo', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
+    ).bind(recordId).run();
+
     await ativarParceiroEEnviarBoasVindas(env, rec.nome_completo, rec.email);
 
-    const HTML_HEADERS = {
-      "Content-Type": "text/html;charset=UTF-8",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
-      "Referrer-Policy": "strict-origin-when-cross-origin",
-    };
     return new Response(`
       <html><body style="font-family:sans-serif;text-align:center;padding:60px">
         <h2 style="color:#16a34a">✅ Parceiro aprovado!</h2>
@@ -639,30 +678,35 @@ async function handleRequest(request, env) {
   }
 
   if (path === "/rejeitar/parceiro" && method === "GET") {
-    const secret   = url.searchParams.get("secret");
-    const recordId = url.searchParams.get("recordId");
+    const secret    = url.searchParams.get("secret");
+    const recordId  = url.searchParams.get("recordId");
+    const confirmar = url.searchParams.get("confirmar") === "1";
     const _sv = await validarSecretAdmin(request, env, secret);
     if (_sv.respostaLimite) return _sv.respostaLimite;
     if (!_sv.autorizado || !recordId || !validarRecordId(recordId)) return errorResponse("Não autorizado", 401);
 
+    const rec = await env.DB.prepare("SELECT nome_completo FROM parceiros WHERE id = ?").bind(recordId).first();
+    if (!rec) return errorResponse("Parceiro não encontrado", 404);
+
+    if (!confirmar) {
+      const urlConfirmar = `${workerOrigin}/rejeitar/parceiro?recordId=${recordId}&secret=${secret}&confirmar=1`;
+      return paginaConfirmacao(
+        "Rejeitar parceiro?",
+        `Confirma a rejeição de <strong>${esc(rec.nome_completo)}</strong>? O cadastro será marcado como Suspenso.`,
+        urlConfirmar, "#dc2626"
+      );
+    }
+
     await env.DB.prepare(
       "UPDATE parceiros SET status = 'Suspenso', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
     ).bind(recordId).run();
-    const rec = await env.DB.prepare("SELECT nome_completo FROM parceiros WHERE id = ?").bind(recordId).first();
 
     return new Response(`
       <html><body style="font-family:sans-serif;text-align:center;padding:60px">
         <h2 style="color:#dc2626">❌ Parceiro rejeitado</h2>
-        <p><strong>${esc(rec?.nome_completo || "")}</strong> foi marcado como Suspenso.</p>
+        <p><strong>${esc(rec.nome_completo)}</strong> foi marcado como Suspenso.</p>
         <p style="color:#666">Você pode fechar esta aba.</p>
-      </body></html>`, {
-      headers: {
-        "Content-Type": "text/html;charset=UTF-8",
-        "X-Content-Type-Options": "nosniff",
-        "X-Frame-Options": "DENY",
-        "Referrer-Policy": "strict-origin-when-cross-origin",
-      },
-    });
+      </body></html>`, { headers: HTML_HEADERS });
   }
 
   // ── Rotas públicas (sem auth) ──────────────────
@@ -684,6 +728,9 @@ async function handleRequest(request, env) {
       body.creci || "",
       tipo ? `(${tipo})` : "",
     ].filter(Boolean).join(" ");
+
+    const existente = await env.DB.prepare("SELECT id FROM parceiros WHERE lower(email) = lower(?)").bind(body.email).first();
+    if (existente) return errorResponse("Este e-mail já está cadastrado.", 409);
 
     const id = gerarRecordId();
     await env.DB.prepare(
@@ -889,6 +936,8 @@ async function handleRequest(request, env) {
   }
 
   if (path === "/oportunidades" && method === "POST") {
+    const rlCriar = await checkRateLimit(env, `criar-op:${user.email}`, 20, 3600);
+    if (!rlCriar.ok) return respostaRateLimit(rlCriar.retryAfterSec);
     if (!user.admin && !(await parceiroPodeEscrever(env, user.email))) {
       return errorResponse("Conta suspensa ou inativa", 403);
     }
@@ -907,6 +956,10 @@ async function handleRequest(request, env) {
       : null;
 
     const campos = camposOportunidade(body);
+    if (!TIPO_IMOVEL_VALIDO.has(campos["Tipo de imóvel"])) return errorResponse("Tipo de imóvel inválido", 400);
+    if (!campos["Valor pretendido (R$)"]) return errorResponse("Valor pretendido é obrigatório", 400);
+    if (!campos["Área total (m²)"] && !campos["Área privativa (m²)"]) return errorResponse("Informe a área total ou privativa", 400);
+
     const id  = gerarRecordId();
     const row = fieldsToRow("oportunidades", campos);
     const cols = Object.keys(row);
@@ -959,6 +1012,8 @@ async function handleRequest(request, env) {
     }
 
     if (method === "PATCH") {
+      const rlEditar = await checkRateLimit(env, `editar-op:${user.email}`, 60, 3600);
+      if (!rlEditar.ok) return respostaRateLimit(rlEditar.retryAfterSec);
       const body = await parseBody(request);
       if (!body) return errorResponse("Corpo da requisição inválido", 400);
 
@@ -986,6 +1041,7 @@ async function handleRequest(request, env) {
         const finalidades = (body.finalidade || "").split(", ").map(f => f.trim()).filter(f => FINALIDADE_VALIDA.has(f));
         const tipoMapeado   = TIPO_IMOVEL_MAP[body.tipo]  || body.tipo   || null;
         const estadoMapeado = ESTADO_MAP[body.estado]     || body.estado || null;
+        if (tipoMapeado && !TIPO_IMOVEL_VALIDO.has(tipoMapeado)) return errorResponse("Tipo de imóvel inválido", 400);
         const titulo = [tipoMapeado, body.municipio, body.estado].filter(Boolean).join(" · ");
         if (titulo)                     campos["Título"]                = titulo;
         if (tipoMapeado)                campos["Tipo de imóvel"]        = tipoMapeado;
@@ -1243,6 +1299,8 @@ async function handleRequest(request, env) {
   }
 
   if (path === "/avisos" && method === "POST" && user.admin) {
+    const rlAviso = await checkRateLimit(env, `aviso:${user.email}`, 20, 3600);
+    if (!rlAviso.ok) return respostaRateLimit(rlAviso.retryAfterSec);
     const body = await parseBody(request);
     if (!body) return errorResponse("Corpo da requisição inválido", 400);
     const id = gerarRecordId();
@@ -1260,6 +1318,8 @@ async function handleRequest(request, env) {
   }
 
   if (path === "/demandas" && method === "POST" && user.admin) {
+    const rlDemanda = await checkRateLimit(env, `demanda:${user.email}`, 20, 3600);
+    if (!rlDemanda.ok) return respostaRateLimit(rlDemanda.retryAfterSec);
     const body = await parseBody(request);
     if (!body) return errorResponse("Corpo da requisição inválido", 400);
     const campos = {
@@ -1349,6 +1409,8 @@ async function handleRequest(request, env) {
   }
 
   if (path === "/mensagens" && method === "POST") {
+    const rlMsg = await checkRateLimit(env, `msg:${user.email}`, 60, 3600);
+    if (!rlMsg.ok) return respostaRateLimit(rlMsg.retryAfterSec);
     const body = await parseBody(request);
     if (!body) return errorResponse("Corpo da requisição inválido", 400);
     if (!body.opId || !body.texto?.trim()) return errorResponse("Dados incompletos");

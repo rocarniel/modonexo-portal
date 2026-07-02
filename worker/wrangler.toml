@@ -1,6 +1,6 @@
 name = "modonexo-worker"
 main = "index.js"
-compatibility_date = "2025-01-01"
+compatibility_date = "2026-07-02"
 workers_dev = true
 
 [[d1_databases]]
@@ -23,7 +23,7 @@ database_id = "ab3e72ab-8f66-453b-9a2e-13f2d15b34fc"
 
 [[env.staging.kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "8984fae1ef074f3ebb9c0527d497c0e6"
+id = "126ae6bd0cb54418bab5d4ade8d391f2"
 
 # Secrets (não coloque aqui — use: wrangler secret put NOME_DA_SECRET [--env staging])
 # wrangler secret put FIREBASE_API_KEY
