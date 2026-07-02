@@ -3,16 +3,31 @@ main = "index.js"
 compatibility_date = "2025-01-01"
 workers_dev = true
 
-[triggers]
-crons = ["0 8 * * *"]
-
-[vars]
-AIRTABLE_BASE = "appt6mRYfyo5Aq6Db"
+[[d1_databases]]
+binding = "DB"
+database_name = "modonexo-db"
+database_id = "c3c8499f-6fb2-4ac0-9bec-b93e382d4457"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
 id = "8984fae1ef074f3ebb9c0527d497c0e6"
 
-# Secrets (não coloque aqui — use: wrangler secret put AIRTABLE_API_KEY)
-# wrangler secret put AIRTABLE_API_KEY
+[env.staging]
+name = "modonexo-worker-staging"
+workers_dev = true
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "modonexo-db-staging"
+database_id = "ab3e72ab-8f66-453b-9a2e-13f2d15b34fc"
+
+[[env.staging.kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "8984fae1ef074f3ebb9c0527d497c0e6"
+
+# Secrets (não coloque aqui — use: wrangler secret put NOME_DA_SECRET [--env staging])
 # wrangler secret put FIREBASE_API_KEY
+# wrangler secret put RESEND_API_KEY
+# wrangler secret put CLOUDINARY_API_KEY
+# wrangler secret put CLOUDINARY_API_SECRET
+# wrangler secret put ADMIN_LINK_SECRET

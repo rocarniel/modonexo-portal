@@ -1,24 +1,13 @@
-// ===== MODO Nexo — Cloudflare Worker =====
-// Deploy: wrangler deploy
-// Vars (configurar no painel Cloudflare → Workers → Settings → Variables):
-//   AIRTABLE_API_KEY   — chave da API do Airtable
-//   FIREBASE_API_KEY   — chave do Firebase Web
-//   AIRTABLE_BASE      — appt6mRYfyo5Aq6Db
+// ===== MODO Nexo — Cloudflare Worker (D1) =====
+// Deploy: wrangler deploy (produção) / wrangler deploy --env staging
+// Secrets (configurar via `wrangler secret put NOME [--env staging]`):
+//   FIREBASE_API_KEY, RESEND_API_KEY, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, ADMIN_LINK_SECRET
+// Bindings (wrangler.toml): DB (D1), RATE_LIMIT (KV)
 
 const ADMIN_EMAILS = [
   "rocarniel@gmail.com",
   "olegarioadvogado@gmail.com",
 ];
-
-// IDs das tabelas (fixos — não mudam)
-const TBL = {
-  parceiros:     "tblQSJNfoSTabmt3q",
-  oportunidades: "tblAPZlD7YJnhZcWF",
-  documentos:    "tblQOsRwdZOOLlp74",
-  mensagens:     "tblSSuGygem5rKKZt",
-  demandas:      "tblziA6PNm0Ya9O8W",
-  leads:         "tblhAGE5p6m9ipfd0",
-};
 
 // ── CORS ──────────────────────────────────────────
 const ALLOWED_ORIGINS = [
@@ -46,10 +35,8 @@ function errorResponse(msg, status = 400) {
 
 // ── Verificar token Firebase ──────────────────────
 async function verifyFirebaseToken(token, env) {
-  // Verificar expiração pelo payload JWT antes de chamar a API (CRÍTICO 2)
   try {
     const [, payloadB64] = token.split(".");
-    // JWT usa base64url sem padding — adicionar padding antes de atob()
     const b64 = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
     const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
     const payload = JSON.parse(atob(padded));
@@ -71,81 +58,36 @@ async function verifyFirebaseToken(token, env) {
   };
 }
 
-// ── Airtable helper ───────────────────────────────
-async function airtable(env, method, table, recordId = "", params = {}, body = null) {
-  const base = `https://api.airtable.com/v0/${env.AIRTABLE_BASE}/${table}`;
-  let url = recordId ? `${base}/${recordId}` : base;
-
-  if (method === "GET" && Object.keys(params).length) {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (Array.isArray(v)) {
-        v.forEach((item, i) => {
-          if (typeof item === "object") {
-            for (const [sk, sv] of Object.entries(item)) {
-              qs.append(`${k}[${i}][${sk}]`, sv);
-            }
-          } else {
-            qs.append(k, item);
-          }
-        });
-      } else {
-        qs.append(k, v);
-      }
-    }
-    url += "?" + qs.toString();
-  }
-
-  const opts = {
-    method,
-    headers: {
-      Authorization:  `Bearer ${env.AIRTABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-  };
-  if (body) opts.body = JSON.stringify(body);
-
-  const res  = await fetch(url, opts);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || "Erro Airtable");
-  return data;
+// ── IDs de registro (formato compatível com o validador antigo) ──
+function gerarRecordId() {
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+  const arr = new Uint8Array(14);
+  crypto.getRandomValues(arr);
+  let s = "";
+  for (let i = 0; i < 14; i++) s += alphabet[arr[i] % alphabet.length];
+  return "rec" + s;
+}
+function validarRecordId(id) {
+  return typeof id === "string" && /^rec[a-z0-9]{14}$/.test(id);
 }
 
-// ── Buscar parceiro pelo email ────────────────────
-async function getParceiroPorEmail(env, email) {
-  const data = await airtable(env, "GET", TBL.parceiros, "", {
-    filterByFormula: `{E-Mail} = "${escFormula(email)}"`,
-    maxRecords: 1,
-  });
-  return data.records?.[0] || null;
-}
-
-// ── Verificar acesso de parceiro a uma oportunidade ──
-// Retorna o registro da oportunidade; lança { status, message } se negado.
-async function verificarAcessoOportunidade(env, user, opId) {
-  if (!validarRecordId(opId)) throw { status: 400, message: "ID de oportunidade inválido" };
-  const op = await airtable(env, "GET", TBL.oportunidades, opId);
-  if (!user.admin) {
-    const emailOp = (op.fields?.["E-mail do solicitante"] || "").toLowerCase();
-    if (emailOp !== user.email.toLowerCase()) throw { status: 403, message: "Acesso negado" };
-  }
-  return op;
-}
-
-// ── Gerar token único ─────────────────────────────
+// ── Token de compartilhamento público ─────────────
 function gerarToken() {
   const arr = new Uint8Array(12);
   crypto.getRandomValues(arr);
   return Array.from(arr).map(b => b.toString(36)).join("").slice(0, 16);
 }
+function validarToken(t) {
+  return typeof t === "string" && /^[a-z0-9]{10,24}$/.test(t);
+}
 
-// ── Mapeamentos form → Airtable ──────────────────
+// ── Mapeamentos form → campos ──────────────────────
 const TIPO_IMOVEL_MAP = {
   "Casa":       "Casa residencial",
   "Terreno":    "Terreno/Lote urbano",
   "Comercial":  "Sala comercial",
   "Rural":      "Gleba rural",
-  "Galpão":     "Sala comercial", // fallback até adicionar no Airtable
+  "Galpão":     "Sala comercial",
 };
 const ESTADO_MAP = {
   AC:"Acre",AL:"Alagoas",AP:"Amapá",AM:"Amazonas",BA:"Bahia",CE:"Ceará",
@@ -155,60 +97,186 @@ const ESTADO_MAP = {
   RN:"Rio Grande do Norte",RS:"Rio Grande do Sul",RO:"Rondônia",
   RR:"Roraima",SC:"Santa Catarina",SP:"São Paulo",SE:"Sergipe",TO:"Tocantins",
 };
-// Opções válidas para Finalidades (multipleSelects) e Tipo de negócio (singleSelect)
 const FINALIDADE_VALIDA = new Set(["Venda","Locação","Permuta","Parceria","Lançamento","Incorporação","Loteamento"]);
 
-// ── Montar campos de Oportunidade para Airtable ──
-function camposOportunidade(payload, parceiro) {
+// ── Camada de serialização D1 <-> formato de API (chaves em português) ──
+const FIELD_MAPS = {
+  parceiros: {
+    "Nome Completo":    { col: "nome_completo",  type: "text" },
+    "E-Mail":           { col: "email",          type: "text" },
+    "Status":           { col: "status",         type: "text" },
+    "CRECI":            { col: "creci",          type: "text" },
+    "WhatsApp":         { col: "whatsapp",       type: "text" },
+    "Data de cadastro": { col: "data_cadastro",  type: "text" },
+  },
+  oportunidades: {
+    "Título":                    { col: "titulo",                 type: "text" },
+    "Tipo de imóvel":            { col: "tipo_imovel",             type: "text" },
+    "Tipo de negócio":           { col: "tipo_negocio",            type: "text" },
+    "CEP":                       { col: "cep",                     type: "text" },
+    "Endereço":                  { col: "endereco",                type: "text" },
+    "Município":                 { col: "municipio",               type: "text" },
+    "Estado":                    { col: "estado",                  type: "text" },
+    "Área total (m²)":           { col: "area_total_m2",           type: "real" },
+    "Área privativa (m²)":       { col: "area_privativa_m2",       type: "real" },
+    "Valor pretendido (R$)":     { col: "valor_pretendido",        type: "real" },
+    "Comissão (%)":              { col: "comissao_pct",            type: "real" },
+    "Detalhes da comissão":      { col: "detalhes_comissao",       type: "text" },
+    "Link de vídeo":             { col: "link_video",              type: "text" },
+    "Link KMZ/KML":              { col: "link_kmz",                type: "text" },
+    "Observações":               { col: "observacoes",             type: "text" },
+    "Latitude":                  { col: "latitude",                type: "real" },
+    "Longitude":                 { col: "longitude",               type: "real" },
+    "Status":                    { col: "status",                  type: "text" },
+    "Motivo (status negativo)":  { col: "motivo_status_negativo",  type: "text" },
+    "Origem":                    { col: "origem",                  type: "text" },
+    "Token de compartilhamento": { col: "token_compartilhamento",  type: "text" },
+    "Data de entrada":           { col: "data_entrada",            type: "text" },
+    "E-mail do solicitante":     { col: "email_solicitante",       type: "text" },
+    "Arquivos (JSON)":           { col: "arquivos_json",           type: "text" },
+    "Histórico (JSON)":          { col: "historico_json",          type: "text" },
+  },
+  mensagens: {
+    "Mensagem":    { col: "mensagem",  type: "text" },
+    "De":          { col: "de",        type: "text" },
+    "Data e hora": { col: "data_hora", type: "text" },
+    "Lida":        { col: "lida",      type: "bool" },
+  },
+  demandas: {
+    "Título":                 { col: "titulo",               type: "text" },
+    "Tipo de imóvel":         { col: "tipo_imovel",           type: "text" },
+    "Localização desejada":   { col: "localizacao_desejada",  type: "text" },
+    "Área mínima (m²)":       { col: "area_minima_m2",        type: "real" },
+    "Área máxima (m²)":       { col: "area_maxima_m2",        type: "real" },
+    "Valor máximo (R$)":      { col: "valor_maximo",          type: "real" },
+    "Descrição":              { col: "descricao",             type: "text" },
+    "Visível para parceiros": { col: "visivel_parceiros",     type: "bool" },
+    "Data de publicação":     { col: "data_publicacao",       type: "text" },
+  },
+  leads: {
+    "Nome":                      { col: "nome",                type: "text" },
+    "WhatsApp":                  { col: "whatsapp",            type: "text" },
+    "Token usado":               { col: "token_usado",         type: "text" },
+    "Data e hora do acesso":     { col: "data_hora_acesso",    type: "text" },
+    "Parceiro que compartilhou": { col: "parceiro_nome",       type: "text" },
+    "E-mail do parceiro":        { col: "parceiro_email",      type: "text" },
+    "Título da oportunidade":    { col: "oportunidade_titulo", type: "text" },
+    "ID da oportunidade":        { col: "oportunidade_id",     type: "text" },
+  },
+};
+
+function rowToRecord(tableName, row) {
+  const map = FIELD_MAPS[tableName];
+  const fields = {};
+  for (const [apiKey, spec] of Object.entries(map)) {
+    let v = row[spec.col];
+    if (v === null || v === undefined) continue;
+    if (spec.type === "bool") v = !!v;
+    fields[apiKey] = v;
+  }
+  return { id: row.id, fields };
+}
+function rowsToRecords(tableName, rows) {
+  return { records: rows.map(r => rowToRecord(tableName, r)) };
+}
+function fieldsToRow(tableName, fieldsBody) {
+  const map = FIELD_MAPS[tableName];
+  const row = {};
+  for (const [apiKey, spec] of Object.entries(map)) {
+    if (!(apiKey in fieldsBody)) continue;
+    let v = fieldsBody[apiKey];
+    if (spec.type === "bool") v = v ? 1 : 0;
+    row[spec.col] = v;
+  }
+  return row;
+}
+
+// Anexa campos sintéticos (não são coluna própria) a registros de Oportunidades:
+// Mensagens (array de ids), Finalidades (array), Parceiro (link) e Nome Completo (from Parceiros)
+async function anexarSinteticosOportunidade(env, rows) {
+  if (!rows.length) return [];
+  const ids = rows.map(r => r.id);
+  const idPlaceholders = ids.map(() => "?").join(",");
+  const parceiroIds = [...new Set(rows.map(r => r.parceiro_id).filter(Boolean))];
+
+  const [msgRes, finRes, parRes] = await Promise.all([
+    env.DB.prepare(`SELECT id, oportunidade_id FROM mensagens WHERE oportunidade_id IN (${idPlaceholders})`).bind(...ids).all(),
+    env.DB.prepare(`SELECT oportunidade_id, finalidade FROM oportunidade_finalidades WHERE oportunidade_id IN (${idPlaceholders}) ORDER BY ordem`).bind(...ids).all(),
+    parceiroIds.length
+      ? env.DB.prepare(`SELECT id, nome_completo FROM parceiros WHERE id IN (${parceiroIds.map(() => "?").join(",")})`).bind(...parceiroIds).all()
+      : Promise.resolve({ results: [] }),
+  ]);
+
+  const msgsByOp = {};
+  for (const m of msgRes.results) {
+    if (!msgsByOp[m.oportunidade_id]) msgsByOp[m.oportunidade_id] = [];
+    msgsByOp[m.oportunidade_id].push(m.id);
+  }
+  const finsByOp = {};
+  for (const f of finRes.results) {
+    if (!finsByOp[f.oportunidade_id]) finsByOp[f.oportunidade_id] = [];
+    finsByOp[f.oportunidade_id].push(f.finalidade);
+  }
+  const nomeByParceiro = {};
+  for (const p of parRes.results) nomeByParceiro[p.id] = p.nome_completo;
+
+  return rows.map(row => {
+    const rec = rowToRecord("oportunidades", row);
+    rec.fields["Mensagens"] = msgsByOp[row.id] || [];
+    if (finsByOp[row.id]) rec.fields["Finalidades"] = finsByOp[row.id];
+    if (row.parceiro_id) {
+      rec.fields["Parceiro"] = [row.parceiro_id];
+      if (nomeByParceiro[row.parceiro_id]) rec.fields["Nome Completo (from Parceiros)"] = [nomeByParceiro[row.parceiro_id]];
+    }
+    return rec;
+  });
+}
+
+// ── Monta campos de Oportunidade a partir do payload recebido ──
+function camposOportunidade(payload) {
   const tipoMapeado   = TIPO_IMOVEL_MAP[payload.tipo] || payload.tipo;
   const estadoMapeado = ESTADO_MAP[payload.estado]    || payload.estado;
-
-  // Finalidades: lista completa no multipleSelects; a primeira vai no singleSelect (compat)
   const finalidades = (payload.finalidade || "").split(", ").map(f => f.trim()).filter(f => FINALIDADE_VALIDA.has(f));
-
   const titulo = [tipoMapeado, payload.municipio, payload.estado].filter(Boolean).join(" · ");
 
   const campos = {
-    "Título":                   titulo,
-    "Tipo de imóvel":           tipoMapeado    || null,
-    "Finalidades":              finalidades.length ? finalidades : null,
-    "Tipo de negócio":          finalidades[0] || null,
-    "CEP":                      payload.cep         || null,
-    "Endereço":                 payload.endereco    || null,
-    "Município":                payload.municipio   || null,
-    "Estado":                   estadoMapeado  || null,
-    "Área total (m²)":          payload.area          || null,
-    "Área privativa (m²)":      payload.areaPrivativa || null,
-    "Valor pretendido (R$)":    payload.valor       || null,
-    "Comissão (%)":             payload.comissao != null ? payload.comissao / 100 : null,
-    "Detalhes da comissão":     payload.detComissao || null,
-    "Link de vídeo":            validarUrlSimples(payload.videoLink) ? payload.videoLink : null,
-    "Link KMZ/KML":             validarUrlSimples(payload.kmlLink)   ? payload.kmlLink   : null,
-    "Observações":              payload.observacoes || null,
-    "Latitude":                 payload.lat         || null,
-    "Longitude":                payload.lng         || null,
-    "Status":                   "Recebido",
-    "Origem":                   payload.origem      || "Parceiro",
-    "Token de compartilhamento": payload.token      || gerarToken(),
-    "Data de entrada":          new Date().toISOString().split("T")[0],
-    "E-mail do solicitante":    payload.emailParceiro || null,
-    "Arquivos (JSON)":          payload.arquivos?.length ? JSON.stringify(payload.arquivos) : null,
+    "Título":                    titulo,
+    "Tipo de imóvel":            tipoMapeado    || null,
+    "Finalidades":               finalidades.length ? finalidades : null,
+    "Tipo de negócio":           finalidades[0] || null,
+    "CEP":                       payload.cep         || null,
+    "Endereço":                  payload.endereco    || null,
+    "Município":                 payload.municipio   || null,
+    "Estado":                    estadoMapeado  || null,
+    "Área total (m²)":           payload.area          || null,
+    "Área privativa (m²)":       payload.areaPrivativa || null,
+    "Valor pretendido (R$)":     payload.valor       || null,
+    "Comissão (%)":              payload.comissao != null ? payload.comissao / 100 : null,
+    "Detalhes da comissão":      payload.detComissao || null,
+    "Link de vídeo":             validarUrlSimples(payload.videoLink) ? payload.videoLink : null,
+    "Link KMZ/KML":              validarUrlSimples(payload.kmlLink)   ? payload.kmlLink   : null,
+    "Observações":               payload.observacoes || null,
+    "Latitude":                  payload.lat         || null,
+    "Longitude":                 payload.lng         || null,
+    "Status":                    "Recebido",
+    "Origem":                    payload.origem      || "Parceiro",
+    "Token de compartilhamento":  payload.token      || gerarToken(),
+    "Data de entrada":           new Date().toISOString().split("T")[0],
+    "E-mail do solicitante":     payload.emailParceiro || null,
+    "Arquivos (JSON)":           payload.arquivos?.length ? JSON.stringify(payload.arquivos) : null,
   };
 
-  if (parceiro) campos["Parceiro"] = [parceiro.id];
-
-  // Remove nulls
   return Object.fromEntries(Object.entries(campos).filter(([, v]) => v !== null));
 }
 
-// ── Assinatura de upload Cloudinary (Red Team #9 — fecha upload direto/anônimo) ──
+// ── Assinatura de upload Cloudinary ────────────────
 async function gerarAssinaturaCloudinary(params, apiSecret) {
   const stringToSign = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join("&") + apiSecret;
   const hashBuffer = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(stringToSign));
   return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// ── Enviar email via Resend ───────────────────────
+// ── Enviar email via Resend ────────────────────────
 async function sendEmail(env, { to, subject, html }) {
   console.log("sendEmail → para:", to, "| assunto:", subject);
   const res = await fetch("https://api.resend.com/emails", {
@@ -233,7 +301,7 @@ async function sendEmail(env, { to, subject, html }) {
 }
 
 // ── Criar usuário no Firebase (ignora "já existe") ──
-// Retorna true se a conta foi CRIADA agora (senha nova vale); false se já existia (senha não muda).
+// Retorna true se a conta foi CRIADA agora (senha nova vale); false se já existia.
 async function criarUsuarioFirebase(env, email, senha) {
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${env.FIREBASE_API_KEY}`,
@@ -245,7 +313,6 @@ async function criarUsuarioFirebase(env, email, senha) {
   );
   const data = await res.json();
   if (res.ok) return true;
-  // EMAIL_EXISTS não é erro — usuário já foi criado antes (senha permanece a que já tinha)
   if (data?.error?.message !== "EMAIL_EXISTS") {
     console.error("Firebase signUp error:", data?.error?.message);
   }
@@ -253,12 +320,12 @@ async function criarUsuarioFirebase(env, email, senha) {
 }
 
 // ── Ativa parceiro: cria conta Firebase com senha aleatória e envia e-mail de boas-vindas.
-// Usado tanto pelo link de aprovação no e-mail quanto pelo webhook do Airtable (CRÍTICO 1).
+// Chamado diretamente de PATCH /parceiros/:id e de /aprovar/parceiro (um único caminho de ativação).
 async function ativarParceiroEEnviarBoasVindas(env, nome, email) {
   if (!email) return;
   const senhaTemp = gerarSenhaTemp();
   const criada = await criarUsuarioFirebase(env, email, senhaTemp);
-  if (!criada) return; // conta já existia — não sabemos a senha real, não reenviar credenciais erradas
+  if (!criada) return;
 
   const urlPortal = "https://modonexo.com.br";
   const primeiroNome = (nome || "").split(" ")[0] || "parceiro";
@@ -311,23 +378,7 @@ function esc(s) {
     .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
-// Escapa aspas duplas em valores usados dentro de fórmulas Airtable (CRÍTICO 3)
-function escFormula(s) {
-  return String(s || "").replace(/\\/g,"\\\\").replace(/"/g,'\\"');
-}
-
-// Valida formato de token de compartilhamento (apenas alfanumérico minúsculo, 10-24 chars)
-function validarToken(t) {
-  return typeof t === "string" && /^[a-z0-9]{10,24}$/.test(t);
-}
-
-// Valida formato de record ID do Airtable (rec + 14 chars alfanuméricos)
-function validarRecordId(id) {
-  return typeof id === "string" && /^rec[a-zA-Z0-9]{14}$/.test(id);
-}
-
-// Valida a estrutura de "arquivos" (imagens/documentos) antes de gravar no Airtable.
-// Impede XSS armazenado via url/nome forjados no corpo da requisição (Red Team #3).
+// Valida a estrutura de "arquivos" (imagens/documentos) antes de gravar.
 function validarArquivos(arquivos) {
   if (!Array.isArray(arquivos)) return null;
   if (arquivos.length > 40) return null;
@@ -343,12 +394,12 @@ function validarArquivos(arquivos) {
   return validos;
 }
 
-// Valida links de vídeo/KMZ: precisa ser http(s) e sem caracteres de injeção (Red Team #3/#4)
+// Valida links de vídeo/KMZ: precisa ser http(s) e sem caracteres de injeção.
 function validarUrlSimples(url) {
   return typeof url === "string" && url.length <= 500 && /^https?:\/\//.test(url) && !/[<>"']/.test(url);
 }
 
-// Gera senha temporária: "user@" + 4 dígitos aleatórios (CRÍTICO 1)
+// Gera senha temporária: "user@" + 4 dígitos aleatórios.
 function gerarSenhaTemp() {
   const arr = new Uint8Array(2);
   crypto.getRandomValues(arr);
@@ -356,14 +407,13 @@ function gerarSenhaTemp() {
   return "user@" + String(n).padStart(4, "0");
 }
 
-// Faz parse do body JSON com erro controlado (MÉDIO 3)
+// Faz parse do body JSON com erro controlado.
 async function parseBody(request) {
   try { return await request.json(); }
   catch { return null; }
 }
 
-// Rate limit por chave (ex: "signup:1.2.3.4") usando KV.
-// Retorna { ok, retryAfterSec } — retryAfterSec só é preenchido quando ok=false (CRÍTICO 5)
+// Rate limit por chave usando KV. Retorna { ok, retryAfterSec }.
 async function checkRateLimit(env, key, maxTentativas, janelaSegundos) {
   const agora = Date.now();
   const atual = await env.RATE_LIMIT.get(key, { type: "json" });
@@ -379,7 +429,6 @@ async function checkRateLimit(env, key, maxTentativas, janelaSegundos) {
   return { ok: true };
 }
 
-// Monta a resposta 429 com mensagem amigável e tempo de espera
 function respostaRateLimit(retryAfterSec) {
   const minutos = Math.max(1, Math.ceil(retryAfterSec / 60));
   const tempo   = minutos === 1 ? "1 minuto" : `${minutos} minutos`;
@@ -390,7 +439,6 @@ function respostaRateLimit(retryAfterSec) {
   });
 }
 
-// Comparação em tempo constante — evita vazar o secret por diferença de tempo de resposta (Red Team #8)
 function compararConstante(a, b) {
   const bufA = new TextEncoder().encode(String(a || ""));
   const bufB = new TextEncoder().encode(String(b || ""));
@@ -400,97 +448,23 @@ function compararConstante(a, b) {
   return diff === 0;
 }
 
-// Valida o secret de rotas administrativas: rate limit por IP + comparação constante (Red Team #8)
 async function validarSecretAdmin(request, env, secretRecebido) {
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const rl = await checkRateLimit(env, `secretadmin:${ip}`, 10, 3600);
   if (!rl.ok) return { autorizado: false, respostaLimite: respostaRateLimit(rl.retryAfterSec) };
-  return { autorizado: compararConstante(secretRecebido, env.WEBHOOK_SECRET) };
+  return { autorizado: compararConstante(secretRecebido, env.ADMIN_LINK_SECRET) };
 }
 
-// ── URLs de consulta CRECI por UF ────────────────────
 const URL_CONSULTA_CRECI = "https://imobisec.com.br/busca";
-
-// ── Webhooks Airtable ─────────────────────────────
-// IDs são atualizados dinamicamente via /webhooks/recriar
-// IDs hardcoded — CF Workers são stateless, mutações de módulo não persistem.
-// Após /webhooks/recriar, atualizar estes valores manualmente e re-deploiar.
-const WEBHOOKS = {
-  parceiros:     "achi9mucKX4tCMZZz",
-  oportunidades: "achCjaYV9Z3207Efo",
-};
-
-const WORKER_URL = "https://modonexo-worker.modonexo.workers.dev";
-
-async function renovarWebhooks(env) {
-  for (const id of Object.values(WEBHOOKS)) {
-    await fetch(
-      `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${id}/refresh`,
-      { method: "POST", headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
-    );
-  }
-}
-
-async function recriarWebhooks(env) {
-  const base = env.AIRTABLE_BASE;
-  const headers = {
-    Authorization: `Bearer ${env.AIRTABLE_API_KEY}`,
-    "Content-Type": "application/json",
-  };
-  const secret = env.WEBHOOK_SECRET;
-
-  const criar = async (notificationUrl, tableId, especificacao) => {
-    const r = await fetch(`https://api.airtable.com/v0/bases/${base}/webhooks`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ notificationUrl, specification: especificacao }),
-    });
-    return r.json();
-  };
-
-  const wParceiros = await criar(
-    `${WORKER_URL}/webhook/parceiro?secret=${secret}`,
-    TBL.parceiros,
-    {
-      options: {
-        filters: {
-          fromSources: ["client", "publicApi"],
-          dataTypes: ["tableData"],
-          recordChangeScope: TBL.parceiros,
-        },
-      },
-    }
-  );
-
-  const wOportunidades = await criar(
-    `${WORKER_URL}/webhook/oportunidade?secret=${secret}`,
-    TBL.oportunidades,
-    {
-      options: {
-        filters: {
-          fromSources: ["client", "publicApi"],
-          dataTypes: ["tableData"],
-          recordChangeScope: TBL.oportunidades,
-        },
-      },
-    }
-  );
-
-  return { parceiros: wParceiros, oportunidades: wOportunidades };
-}
 
 // ── ROTEADOR ──────────────────────────────────────
 export default {
-  async scheduled(event, env) {
-    await renovarWebhooks(env);
-  },
-
   async fetch(request, env) {
-    const reqOrigin    = request.headers.get("Origin") || "";
+    const reqOrigin     = request.headers.get("Origin") || "";
     const allowedOrigin = ALLOWED_ORIGINS.includes(reqOrigin) ? reqOrigin : null;
     try {
-      const res = await this._handle(request, env);
-      if (!allowedOrigin) return res; // chamada server-to-server — sem override de CORS
+      const res = await handleRequest(request, env);
+      if (!allowedOrigin) return res;
       const h = new Headers(res.headers);
       h.set("Access-Control-Allow-Origin", allowedOrigin);
       h.set("Vary", "Origin");
@@ -504,913 +478,796 @@ export default {
       });
     }
   },
+};
 
-  async _handle(request, env) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS });
-    }
+async function handleRequest(request, env) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: CORS });
+  }
 
-    const url      = new URL(request.url);
-    const path     = url.pathname;
-    const method   = request.method;
+  const url    = new URL(request.url);
+  const path   = url.pathname;
+  const method = request.method;
+  const workerOrigin = url.origin;
 
-    // ── Webhooks do Airtable (sem auth — validados por secret) ──
+  // ── Aprovar / Rejeitar parceiro por link no email (secret próprio, sem Firebase) ──
 
-    // Webhook: novo parceiro (tabela Parceiros)
-    if (path === "/webhook/parceiro" && method === "POST") {
-      const secret = url.searchParams.get("secret");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
+  if (path === "/aprovar/parceiro" && method === "GET") {
+    const secret    = url.searchParams.get("secret");
+    const recordId  = url.searchParams.get("recordId");
+    const _sv = await validarSecretAdmin(request, env, secret);
+    if (_sv.respostaLimite) return _sv.respostaLimite;
+    if (!_sv.autorizado || !recordId || !validarRecordId(recordId)) return errorResponse("Não autorizado", 401);
 
-      await request.json(); // consumir body
-      const webhookId = WEBHOOKS.parceiros;
-      const payloadRes = await fetch(
-        `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${webhookId}/payloads`,
-        { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
-      );
-      const payloadData = await payloadRes.json();
-      const changedRecords = [...new Set(payloadData?.payloads?.flatMap(p => [
-        ...Object.keys(p.changedTablesById?.tblQSJNfoSTabmt3q?.createdRecordsById || {}),
-        ...Object.keys(p.changedTablesById?.tblQSJNfoSTabmt3q?.changedRecordsById || {}),
-      ]) || [])];
+    await env.DB.prepare(
+      "UPDATE parceiros SET status = 'Ativo', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
+    ).bind(recordId).run();
+    const rec = await env.DB.prepare("SELECT * FROM parceiros WHERE id = ?").bind(recordId).first();
+    if (!rec) return errorResponse("Parceiro não encontrado", 404);
 
-      for (const recordId of changedRecords) {
-        const rec    = await airtable(env, "GET", TBL.parceiros, recordId);
-        const fields = rec.fields || {};
-        const status = fields["Status"];
-        const email  = fields["E-Mail"] || "";
-        const nome   = fields["Nome Completo"] || "";
+    await ativarParceiroEEnviarBoasVindas(env, rec.nome_completo, rec.email);
 
-        if (status === "Ativo" && email) {
-          await ativarParceiroEEnviarBoasVindas(env, nome, email);
-        }
-      }
+    const HTML_HEADERS = {
+      "Content-Type": "text/html;charset=UTF-8",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+    };
+    return new Response(`
+      <html><body style="font-family:sans-serif;text-align:center;padding:60px">
+        <h2 style="color:#16a34a">✅ Parceiro aprovado!</h2>
+        <p><strong>${esc(rec.nome_completo)}</strong> agora tem acesso ao portal MODOnexo.</p>
+        <p style="color:#666">Um e-mail de boas-vindas foi enviado para <strong>${esc(rec.email)}</strong>.</p>
+        <p style="color:#666">Você pode fechar esta aba.</p>
+      </body></html>`, { headers: HTML_HEADERS });
+  }
 
-      return corsResponse({ ok: true });
-    }
+  if (path === "/rejeitar/parceiro" && method === "GET") {
+    const secret   = url.searchParams.get("secret");
+    const recordId = url.searchParams.get("recordId");
+    const _sv = await validarSecretAdmin(request, env, secret);
+    if (_sv.respostaLimite) return _sv.respostaLimite;
+    if (!_sv.autorizado || !recordId || !validarRecordId(recordId)) return errorResponse("Não autorizado", 401);
 
-    // Webhook: nova oportunidade (tabela Oportunidades)
-    if (path === "/webhook/oportunidade" && method === "POST") {
-      const secret = url.searchParams.get("secret");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
+    await env.DB.prepare(
+      "UPDATE parceiros SET status = 'Suspenso', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
+    ).bind(recordId).run();
+    const rec = await env.DB.prepare("SELECT nome_completo FROM parceiros WHERE id = ?").bind(recordId).first();
 
-      await request.json(); // consumir body
-      const webhookId = WEBHOOKS.oportunidades;
-      const payloadRes = await fetch(
-        `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${webhookId}/payloads`,
-        { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
-      );
-      const payloadData = await payloadRes.json();
-      const createdRecords = [...new Set(payloadData?.payloads?.flatMap(p => [
-        ...Object.keys(p.changedTablesById?.tblAPZlD7YJnhZcWF?.createdRecordsById || {}),
-        ...Object.keys(p.changedTablesById?.tblAPZlD7YJnhZcWF?.changedRecordsById || {}),
-      ]) || [])];
-
-      for (const recordId of createdRecords) {
-        const rec    = await airtable(env, "GET", TBL.oportunidades, recordId);
-        const fields = rec.fields || {};
-        const titulo        = fields["Título"] || "sem título";
-        const emailParceiro = fields["E-mail do solicitante"] || "";
-        const municipio     = fields["Município"] || "";
-        const tipo          = fields["Tipo de imóvel"] || "";
-
-        if (emailParceiro && !fields["Parceiro"]) {
-          const parceiro = await getParceiroPorEmail(env, emailParceiro);
-          if (parceiro) {
-            await airtable(env, "PATCH", TBL.oportunidades, recordId, {}, {
-              fields: { "Parceiro": [parceiro.id] },
-            });
-          }
-        }
-
-        await sendEmail(env, {
-          to: "modogestaonexo@gmail.com",
-          subject: `Nova oportunidade cadastrada — ${titulo}`,
-          html: `<p>Nova oportunidade recebida no portal:</p>
-                 <ul>
-                   <li><strong>Título:</strong> ${titulo}</li>
-                   <li><strong>Tipo:</strong> ${tipo}</li>
-                   <li><strong>Município:</strong> ${municipio}</li>
-                   <li><strong>Parceiro:</strong> ${emailParceiro}</li>
-                 </ul>
-                 <p>Acesse o Airtable para ver os detalhes.</p>`,
-        });
-      }
-
-      return corsResponse({ ok: true });
-    }
-
-    // ── Aprovar / Rejeitar parceiro por link no email ──
-
-    if (path === "/aprovar/parceiro" && method === "GET") {
-      const secret = url.searchParams.get("secret");
-      const recordId = url.searchParams.get("recordId");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado || !recordId) return errorResponse("Não autorizado", 401);
-
-      const rec = await airtable(env, "PATCH", TBL.parceiros, recordId, {}, {
-        fields: { "Status": "Ativo" },
-      });
-      const nome  = rec.fields?.["Nome Completo"] || "";
-      const email = rec.fields?.["E-Mail"] || "";
-
-      await ativarParceiroEEnviarBoasVindas(env, nome, email);
-
-      const HTML_HEADERS = {
+    return new Response(`
+      <html><body style="font-family:sans-serif;text-align:center;padding:60px">
+        <h2 style="color:#dc2626">❌ Parceiro rejeitado</h2>
+        <p><strong>${esc(rec?.nome_completo || "")}</strong> foi marcado como Suspenso.</p>
+        <p style="color:#666">Você pode fechar esta aba.</p>
+      </body></html>`, {
+      headers: {
         "Content-Type": "text/html;charset=UTF-8",
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
         "Referrer-Policy": "strict-origin-when-cross-origin",
-      };
-      return new Response(`
-        <html><body style="font-family:sans-serif;text-align:center;padding:60px">
-          <h2 style="color:#16a34a">✅ Parceiro aprovado!</h2>
-          <p><strong>${esc(nome)}</strong> agora tem acesso ao portal MODOnexo.</p>
-          <p style="color:#666">Um e-mail de boas-vindas foi enviado para <strong>${esc(email)}</strong>.</p>
-          <p style="color:#666">Você pode fechar esta aba.</p>
-        </body></html>`, { headers: HTML_HEADERS });
-    }
+      },
+    });
+  }
 
-    if (path === "/rejeitar/parceiro" && method === "GET") {
-      const secret = url.searchParams.get("secret");
-      const recordId = url.searchParams.get("recordId");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado || !recordId) return errorResponse("Não autorizado", 401);
+  // ── Rotas públicas (sem auth) ──────────────────
 
-      const rec = await airtable(env, "PATCH", TBL.parceiros, recordId, {}, {
-        fields: { "Status": "Suspenso" },
-      });
-      const nome = rec.fields?.["Nome Completo"] || "";
+  // Cadastro público de parceiro
+  if (path === "/parceiros/publico" && method === "POST") {
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const rl = await checkRateLimit(env, `signup:${ip}`, 5, 3600);
+    if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    if (!body.nome || !body.email) return errorResponse("Nome e e-mail obrigatórios");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return errorResponse("E-mail inválido");
+    if (body.nome.length > 120 || body.email.length > 120) return errorResponse("Campo excede tamanho permitido");
+    const uf   = (body.creciUf   || "").toUpperCase();
+    const tipo = (body.creciTipo || "").toUpperCase();
+    const creciLabel = [
+      uf   ? `CRECI-${uf}` : "",
+      body.creci || "",
+      tipo ? `(${tipo})` : "",
+    ].filter(Boolean).join(" ");
 
-      return new Response(`
-        <html><body style="font-family:sans-serif;text-align:center;padding:60px">
-          <h2 style="color:#dc2626">❌ Parceiro rejeitado</h2>
-          <p><strong>${esc(nome)}</strong> foi marcado como Suspenso.</p>
-          <p style="color:#666">Você pode fechar esta aba.</p>
-        </body></html>`, {
-        headers: {
-          "Content-Type": "text/html;charset=UTF-8",
-          "X-Content-Type-Options": "nosniff",
-          "X-Frame-Options": "DENY",
-          "Referrer-Policy": "strict-origin-when-cross-origin",
-        },
-      });
-    }
+    const id = gerarRecordId();
+    await env.DB.prepare(
+      "INSERT INTO parceiros (id, nome_completo, email, creci, whatsapp) VALUES (?, ?, ?, ?, ?)"
+    ).bind(id, body.nome, body.email, creciLabel, body.whatsapp || "").run();
 
-    // ── Rotas públicas (sem auth) ──────────────────
-
-    // Diagnóstico / renovação manual de webhooks
-    if (path === "/webhooks/listar" && method === "GET") {
-      const secret = url.searchParams.get("secret");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
-      const r = await fetch(
-        `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks`,
-        { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
-      );
-      const d = await r.json();
-      return corsResponse(d);
-    }
-
-    if (path === "/webhooks/status" && method === "GET") {
-      const secret = url.searchParams.get("secret");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
-      const results = [];
-      for (const [nome, id] of Object.entries(WEBHOOKS)) {
-        const r = await fetch(
-          `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${id}`,
-          { headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
-        );
-        const d = await r.json();
-        results.push({ nome, id, expiresAt: d.expirationTime, isEnabled: d.isHookEnabled, error: d.error });
-      }
-      return corsResponse({ webhooks: results });
-    }
-
-    if (path === "/webhooks/renovar" && method === "GET") {
-      const secret = url.searchParams.get("secret");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
-      await renovarWebhooks(env);
-      return corsResponse({ ok: true, renovadoEm: new Date().toISOString() });
-    }
-
-    if (path === "/webhooks/recriar" && method === "GET") {
-      const secret = url.searchParams.get("secret");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado) return errorResponse("Não autorizado", 401);
-      const resultado = await recriarWebhooks(env);
-      return corsResponse(resultado);
-    }
-
-    if (path === "/webhooks/deletar" && method === "GET") {
-      const secret = url.searchParams.get("secret");
-      const id     = url.searchParams.get("id");
-      const _sv = await validarSecretAdmin(request, env, secret);
-      if (_sv.respostaLimite) return _sv.respostaLimite;
-      if (!_sv.autorizado || !id) return errorResponse("Não autorizado", 401);
-      const r = await fetch(
-        `https://api.airtable.com/v0/bases/${env.AIRTABLE_BASE}/webhooks/${id}`,
-        { method: "DELETE", headers: { Authorization: `Bearer ${env.AIRTABLE_API_KEY}` } }
-      );
-      return corsResponse({ ok: r.ok, status: r.status });
-    }
-
-    // Cadastro público de parceiro
-    if (path === "/parceiros/publico" && method === "POST") {
-      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-      const rl = await checkRateLimit(env, `signup:${ip}`, 5, 3600);
-      if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
-      const body = await parseBody(request);
-      if (!body) return errorResponse("Corpo da requisição inválido", 400);
-      if (!body.nome || !body.email) return errorResponse("Nome e e-mail obrigatórios");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return errorResponse("E-mail inválido");
-      if (body.nome.length > 120 || body.email.length > 120) return errorResponse("Campo excede tamanho permitido");
-      const uf         = (body.creciUf   || "").toUpperCase();
-      const tipo       = (body.creciTipo || "").toUpperCase(); // PF ou PJ
-      const creciLabel = [
-        uf   ? `CRECI-${uf}` : "",
-        body.creci || "",
-        tipo ? `(${tipo})` : "",
-      ].filter(Boolean).join(" ");
-      const record = await airtable(env, "POST", TBL.parceiros, "", {}, {
-        fields: {
-          "Nome Completo":    body.nome,
-          "E-Mail":           body.email,
-          "CRECI":            creciLabel,
-          "WhatsApp":         body.whatsapp || "",
-          "Status":           "Pendente",
-          "Data de cadastro": new Date().toISOString().split("T")[0],
-        },
-      });
-      // Email de confirmação para o solicitante
-      const primeiroNome = (body.nome || "").split(" ")[0];
-      await sendEmail(env, {
-        to: body.email,
-        subject: "Recebemos seu cadastro — Portal MODOnexo",
-        html: `
-          <div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
-            <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0;text-align:center">
-              <h1 style="color:#fff;margin:0;font-size:20px">Portal MODOnexo</h1>
-            </div>
-            <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
-              <h2 style="color:#1a1a2e;margin-top:0">Olá, ${primeiroNome}!</h2>
-              <p>Recebemos seu pedido de cadastro como parceiro da <strong>MODO - Planejamento e Gestão Imobiliária</strong>.</p>
-              <p>Nossa equipe irá analisar suas informações e você receberá um e-mail de confirmação em breve com as instruções de acesso ao portal.</p>
-              <div style="background:#f8fafc;border-left:4px solid #1a1a2e;padding:16px 20px;border-radius:0 8px 8px 0;margin:24px 0">
-                <p style="margin:0;font-size:14px;color:#475569">
-                  <strong>Dados enviados:</strong><br>
-                  Nome: ${body.nome}<br>
-                  E-mail: ${body.email}<br>
-                  CRECI: ${creciLabel || "—"}
-                </p>
-              </div>
-              <p style="color:#64748b;font-size:14px">Se você não solicitou este cadastro, desconsidere este e-mail.</p>
-              <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
-                MODO - Planejamento e Gestão Imobiliária · Portal MODOnexo
+    const primeiroNome = (body.nome || "").split(" ")[0];
+    await sendEmail(env, {
+      to: body.email,
+      subject: "Recebemos seu cadastro — Portal MODOnexo",
+      html: `
+        <div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+          <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0;text-align:center">
+            <h1 style="color:#fff;margin:0;font-size:20px">Portal MODOnexo</h1>
+          </div>
+          <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+            <h2 style="color:#1a1a2e;margin-top:0">Olá, ${esc(primeiroNome)}!</h2>
+            <p>Recebemos seu pedido de cadastro como parceiro da <strong>MODO - Planejamento e Gestão Imobiliária</strong>.</p>
+            <p>Nossa equipe irá analisar suas informações e você receberá um e-mail de confirmação em breve com as instruções de acesso ao portal.</p>
+            <div style="background:#f8fafc;border-left:4px solid #1a1a2e;padding:16px 20px;border-radius:0 8px 8px 0;margin:24px 0">
+              <p style="margin:0;font-size:14px;color:#475569">
+                <strong>Dados enviados:</strong><br>
+                Nome: ${esc(body.nome)}<br>
+                E-mail: ${esc(body.email)}<br>
+                CRECI: ${esc(creciLabel || "—")}
               </p>
             </div>
-          </div>`,
-      });
+            <p style="color:#64748b;font-size:14px">Se você não solicitou este cadastro, desconsidere este e-mail.</p>
+            <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:32px">
+              MODO - Planejamento e Gestão Imobiliária · Portal MODOnexo
+            </p>
+          </div>
+        </div>`,
+    });
 
-      // Email direto para o admin — não depende de webhook
-      const recordId   = record.id;
-      const urlAprovar  = `${WORKER_URL}/aprovar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
-      const urlRejeitar = `${WORKER_URL}/rejeitar/parceiro?recordId=${recordId}&secret=${env.WEBHOOK_SECRET}`;
-      const urlCreci = URL_CONSULTA_CRECI;
-      await sendEmail(env, {
-        to: "modogestaonexo@gmail.com",
-        subject: "Novo parceiro aguardando aprovação — Portal MODO",
-        html: `
-          <div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
-            <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
-              <h2 style="color:#fff;margin:0;font-size:18px">Novo parceiro cadastrado</h2>
+    const urlAprovar  = `${workerOrigin}/aprovar/parceiro?recordId=${id}&secret=${env.ADMIN_LINK_SECRET}`;
+    const urlRejeitar = `${workerOrigin}/rejeitar/parceiro?recordId=${id}&secret=${env.ADMIN_LINK_SECRET}`;
+    await sendEmail(env, {
+      to: "modogestaonexo@gmail.com",
+      subject: "Novo parceiro aguardando aprovação — Portal MODO",
+      html: `
+        <div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+          <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
+            <h2 style="color:#fff;margin:0;font-size:18px">Novo parceiro cadastrado</h2>
+          </div>
+          <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+            <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+              <tr><td style="padding:8px 0;color:#64748b;width:90px">Nome</td><td style="padding:8px 0;font-weight:600">${esc(body.nome)}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748b">E-mail</td><td style="padding:8px 0">${esc(body.email)}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748b">WhatsApp</td><td style="padding:8px 0">${esc(body.whatsapp || "—")}</td></tr>
+              <tr>
+                <td style="padding:8px 0;color:#64748b">CRECI</td>
+                <td style="padding:8px 0">
+                  <strong>${esc(creciLabel || "—")}</strong>
+                  &nbsp;<a href="${URL_CONSULTA_CRECI}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no IMOBISEC</a>
+                </td>
+              </tr>
+            </table>
+            <div style="margin-top:8px">
+              <a href="${urlAprovar}" style="background:#16a34a;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">✅ Aprovar</a>
+              &nbsp;&nbsp;
+              <a href="${urlRejeitar}" style="background:#dc2626;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">❌ Rejeitar</a>
             </div>
-            <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
-              <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-                <tr><td style="padding:8px 0;color:#64748b;width:90px">Nome</td><td style="padding:8px 0;font-weight:600">${body.nome}</td></tr>
-                <tr><td style="padding:8px 0;color:#64748b">E-mail</td><td style="padding:8px 0">${body.email}</td></tr>
-                <tr><td style="padding:8px 0;color:#64748b">WhatsApp</td><td style="padding:8px 0">${body.whatsapp || "—"}</td></tr>
-                <tr>
-                  <td style="padding:8px 0;color:#64748b">CRECI</td>
-                  <td style="padding:8px 0">
-                    <strong>${creciLabel || "—"}</strong>
-                    ${urlCreci ? `&nbsp;<a href="${urlCreci}" target="_blank" style="color:#2563eb;font-size:13px;text-decoration:none">🔍 Consultar no IMOBISEC</a>` : ""}
-                  </td>
-                </tr>
-              </table>
-              <div style="margin-top:8px">
-                <a href="${urlAprovar}" style="background:#16a34a;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">✅ Aprovar</a>
-                &nbsp;&nbsp;
-                <a href="${urlRejeitar}" style="background:#dc2626;color:#fff;padding:13px 28px;border-radius:7px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">❌ Rejeitar</a>
-              </div>
-            </div>
-          </div>`,
-      });
+          </div>
+        </div>`,
+    });
 
-      return corsResponse({ id: record.id });
+    return corsResponse({ id });
+  }
+
+  // Registro de lead (acesso a link público)
+  if (path === "/leads/publico" && method === "POST") {
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const rl = await checkRateLimit(env, `lead:${ip}`, 20, 3600);
+    if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    if (!body.nome || !body.whatsapp || !body.token) return errorResponse("Dados incompletos");
+    if (!validarToken(body.token)) return errorResponse("Token inválido", 400);
+    if (body.nome.length > 120 || body.whatsapp.length > 30) return errorResponse("Campo excede tamanho permitido", 400);
+    if (/[<>]/.test(body.nome)) return errorResponse("Nome contém caracteres inválidos", 400);
+    if (!/^[\d\s()+-]+$/.test(body.whatsapp)) return errorResponse("WhatsApp inválido", 400);
+
+    const op = await env.DB.prepare(
+      "SELECT id, titulo, email_solicitante FROM oportunidades WHERE token_compartilhamento = ?"
+    ).bind(body.token).first();
+
+    let nomeParceiro = "";
+    if (op?.email_solicitante) {
+      const p = await env.DB.prepare("SELECT nome_completo FROM parceiros WHERE lower(email) = lower(?)").bind(op.email_solicitante).first();
+      nomeParceiro = p?.nome_completo || "";
     }
 
-    // Registro de lead (acesso a link público)
-    if (path === "/leads/publico" && method === "POST") {
-      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-      const rl = await checkRateLimit(env, `lead:${ip}`, 20, 3600);
-      if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
-      const body = await parseBody(request);
-      if (!body) return errorResponse("Corpo da requisição inválido", 400);
-      if (!body.nome || !body.whatsapp || !body.token) return errorResponse("Dados incompletos");
-      if (!validarToken(body.token)) return errorResponse("Token inválido", 400);
-      // Validação de conteúdo (Red Team #2 — XSS armazenado via captura pública de leads)
-      if (body.nome.length > 120 || body.whatsapp.length > 30) return errorResponse("Campo excede tamanho permitido", 400);
-      if (/[<>]/.test(body.nome)) return errorResponse("Nome contém caracteres inválidos", 400);
-      if (!/^[\d\s()+-]+$/.test(body.whatsapp)) return errorResponse("WhatsApp inválido", 400);
+    const id = gerarRecordId();
+    await env.DB.prepare(
+      `INSERT INTO leads (id, nome, whatsapp, token_usado, parceiro_nome, parceiro_email, oportunidade_titulo, oportunidade_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, body.nome, body.whatsapp, body.token, nomeParceiro, op?.email_solicitante || "", op?.titulo || "", op?.id || null).run();
 
-      // Buscar oportunidade pelo token
-      const opData = await airtable(env, "GET", TBL.oportunidades, "", {
-        filterByFormula: `{Token de compartilhamento} = "${escFormula(body.token)}"`,
-        maxRecords: 1,
-        fields: ["Título", "E-mail do solicitante", "Token de compartilhamento"],
-      });
-      const op = opData.records?.[0];
+    return corsResponse({ ok: true });
+  }
 
-      // Buscar nome do parceiro
-      let nomeParceiro = "";
-      if (op?.fields["E-mail do solicitante"]) {
-        const p = await getParceiroPorEmail(env, op.fields["E-mail do solicitante"]);
-        nomeParceiro = p?.fields["Nome Completo"] || "";
-      }
+  // Oportunidade pública pelo token
+  if (path.startsWith("/publico/oportunidade/") && method === "GET") {
+    const token = path.split("/").pop();
+    if (!validarToken(token)) return errorResponse("Token inválido", 400);
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const rl = await checkRateLimit(env, `view:${ip}`, 60, 3600);
+    if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
 
-      await airtable(env, "POST", TBL.leads, "", {}, {
-        fields: {
-          "Nome":                      body.nome,
-          "WhatsApp":                  body.whatsapp,
-          "Token usado":               body.token,
-          "Data e hora do acesso":     new Date().toISOString(),
-          "Parceiro que compartilhou": nomeParceiro,
-          "E-mail do parceiro":        op?.fields["E-mail do solicitante"] || "",
-          "Título da oportunidade":    op?.fields["Título"] || "",
-          "ID da oportunidade":        op?.id || "",
-        },
-      });
-      return corsResponse({ ok: true });
+    const op = await env.DB.prepare("SELECT * FROM oportunidades WHERE token_compartilhamento = ?").bind(token).first();
+    if (!op) return errorResponse("Oportunidade não encontrada", 404);
+
+    let parceiro = null;
+    if (op.email_solicitante) {
+      const p = await env.DB.prepare("SELECT nome_completo, whatsapp FROM parceiros WHERE lower(email) = lower(?)").bind(op.email_solicitante).first();
+      if (p) parceiro = { nome: p.nome_completo, whatsapp: p.whatsapp };
     }
 
-    // Oportunidade pública pelo token
-    if (path.startsWith("/publico/oportunidade/") && method === "GET") {
-      const token = path.split("/").pop();
-      if (!validarToken(token)) return errorResponse("Token inválido", 400);
-      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-      const rl = await checkRateLimit(env, `view:${ip}`, 60, 3600);
-      if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
-      const data  = await airtable(env, "GET", TBL.oportunidades, "", {
-        filterByFormula: `{Token de compartilhamento} = "${escFormula(token)}"`,
-        maxRecords: 1,
-      });
-      const op = data.records?.[0];
-      if (!op) return errorResponse("Oportunidade não encontrada", 404);
+    const modo = url.searchParams.get("modo") === "completo" ? "completo" : "previa";
+    const CAMPOS_PREVIA = new Set([
+      "Título","Tipo de imóvel","Município","Estado","Latitude","Longitude","Link KMZ/KML",
+      "Token de compartilhamento","Arquivos (JSON)",
+    ]);
+    const CAMPOS_COMPLETO = new Set([
+      ...CAMPOS_PREVIA,
+      "Finalidades","Tipo de negócio","CEP","Endereço",
+      "Área total (m²)","Área privativa (m²)","Valor pretendido (R$)",
+      "Observações","Link de vídeo",
+    ]);
+    const camposPermitidos = modo === "completo" ? CAMPOS_COMPLETO : CAMPOS_PREVIA;
 
-      // Buscar dados do parceiro
-      const emailParceiro = op.fields["E-mail do solicitante"];
-      let parceiro = null;
-      if (emailParceiro) {
-        const p = await getParceiroPorEmail(env, emailParceiro);
-        if (p) parceiro = { nome: p.fields["Nome Completo"], whatsapp: p.fields["WhatsApp"] };
+    const recordCompleto = rowToRecord("oportunidades", op);
+    if (camposPermitidos.has("Finalidades")) {
+      const { results: finRows } = await env.DB.prepare(
+        "SELECT finalidade FROM oportunidade_finalidades WHERE oportunidade_id = ? ORDER BY ordem"
+      ).bind(op.id).all();
+      if (finRows.length) recordCompleto.fields["Finalidades"] = finRows.map(f => f.finalidade);
+    }
+
+    const fieldsFiltrados = Object.fromEntries(
+      Object.entries(recordCompleto.fields).filter(([k]) => camposPermitidos.has(k))
+    );
+    fieldsFiltrados._parceiro = parceiro;
+
+    if (op.arquivos_json) {
+      try {
+        const todos = JSON.parse(op.arquivos_json);
+        fieldsFiltrados._imagens    = todos.filter(a => a.tipo === "imagem").map(a => a.url);
+        fieldsFiltrados._documentos = todos.filter(a => a.tipo === "documento");
+      } catch { /* JSON inválido — ignora */ }
+    }
+
+    return corsResponse({ id: op.id, fields: fieldsFiltrados });
+  }
+
+  // ── Autenticação obrigatória abaixo ────────────
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) return errorResponse("Não autorizado", 401);
+
+  const user = await verifyFirebaseToken(authHeader.slice(7), env);
+  if (!user) return errorResponse("Token inválido", 401);
+
+  // Assinatura de upload — exige login, evita upload direto/anônimo no Cloudinary
+  if (path === "/cloudinary/assinatura" && method === "POST") {
+    const rl = await checkRateLimit(env, `upload:${user.email}`, 60, 3600);
+    if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    const foldersValidos = new Set(["modo-imagens", "modo-docs", "modo-kmz"]);
+    const folder = foldersValidos.has(body.folder) ? body.folder : "modo-imagens";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = await gerarAssinaturaCloudinary({ folder, timestamp }, env.CLOUDINARY_API_SECRET);
+    return corsResponse({
+      signature, timestamp, folder,
+      apiKey: env.CLOUDINARY_API_KEY,
+      cloudName: "dlyebtufy",
+    });
+  }
+
+  // ── Oportunidades ──────────────────────────────
+
+  if (path === "/oportunidades" && method === "GET") {
+    const params = url.searchParams;
+    const limit  = Math.min(parseInt(params.get("limit") || "100", 10) || 100, 500);
+
+    let where = "";
+    let bindings = [];
+    if (user.admin && params.get("todos") === "true") {
+      where = "";
+    } else if (user.admin) {
+      where = "WHERE origem != ?";
+      bindings = ["MODO"];
+    } else {
+      where = "WHERE lower(email_solicitante) = lower(?)";
+      bindings = [user.email];
+    }
+
+    const sql = `SELECT * FROM oportunidades ${where} ORDER BY data_entrada DESC LIMIT ?`;
+    const { results } = await env.DB.prepare(sql).bind(...bindings, limit).all();
+    const records = await anexarSinteticosOportunidade(env, results);
+    return corsResponse({ records });
+  }
+
+  if (path === "/oportunidades" && method === "POST") {
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    if (body.arquivos) {
+      const arquivosValidos = validarArquivos(body.arquivos);
+      if (!arquivosValidos) return errorResponse("Arquivos em formato inválido", 400);
+      body.arquivos = arquivosValidos;
+    }
+    if (!user.admin) { body.emailParceiro = user.email; body.origem = "Parceiro"; }
+
+    const emailParceiro = body.emailParceiro || null;
+    const parceiro = emailParceiro
+      ? await env.DB.prepare("SELECT id FROM parceiros WHERE lower(email) = lower(?)").bind(emailParceiro).first()
+      : null;
+
+    const campos = camposOportunidade(body);
+    const id  = gerarRecordId();
+    const row = fieldsToRow("oportunidades", campos);
+    const cols = Object.keys(row);
+    const allCols = [...cols, "parceiro_id"];
+    const sql = `INSERT INTO oportunidades (id, ${allCols.join(", ")}) VALUES (?, ${allCols.map(() => "?").join(", ")})`;
+    await env.DB.prepare(sql).bind(id, ...cols.map(c => row[c]), parceiro ? parceiro.id : null).run();
+
+    if (campos["Finalidades"]) {
+      await env.DB.batch(campos["Finalidades"].map((f, i) =>
+        env.DB.prepare("INSERT INTO oportunidade_finalidades (oportunidade_id, finalidade, ordem) VALUES (?, ?, ?)")
+          .bind(id, f, i)));
+    }
+
+    await sendEmail(env, {
+      to: "modogestaonexo@gmail.com",
+      subject: `Nova oportunidade cadastrada — ${campos["Título"]}`,
+      html: `<p>Nova oportunidade recebida no portal:</p>
+             <ul>
+               <li><strong>Título:</strong> ${esc(campos["Título"])}</li>
+               <li><strong>Tipo:</strong> ${esc(campos["Tipo de imóvel"] || "")}</li>
+               <li><strong>Município:</strong> ${esc(campos["Município"] || "")}</li>
+               <li><strong>Parceiro:</strong> ${esc(emailParceiro || "")}</li>
+             </ul>
+             <p>Acesse o painel para ver os detalhes.</p>`,
+    });
+
+    return corsResponse({ id });
+  }
+
+  const opMatch = path.match(/^\/oportunidades\/([^/]+)$/);
+  if (opMatch) {
+    const id = opMatch[1];
+    if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
+
+    if (method === "GET") {
+      const row = await env.DB.prepare("SELECT * FROM oportunidades WHERE id = ?").bind(id).first();
+      if (!row) return errorResponse("Oportunidade não encontrada", 404);
+      if (!user.admin && row.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
+        return errorResponse("Acesso negado", 403);
       }
-
-      // Allowlist de campos públicos — comissão e histórico nunca são expostos (MÉDIO 8).
-      // "prévia" (padrão): só localização, tipo e mídia. "completo": inclui valor, área e observações.
-      const modo = url.searchParams.get("modo") === "completo" ? "completo" : "previa";
-      const CAMPOS_PREVIA = new Set([
-        "Título","Tipo de imóvel",
-        "Município","Estado","Latitude","Longitude","Link KMZ/KML",
-        "Token de compartilhamento","Arquivos (JSON)",
-      ]);
-      const CAMPOS_COMPLETO = new Set([
-        ...CAMPOS_PREVIA,
-        "Finalidades","Tipo de negócio","CEP","Endereço",
-        "Área total (m²)","Área privativa (m²)","Valor pretendido (R$)",
-        "Observações","Link de vídeo",
-      ]);
-      const camposPermitidos = modo === "completo" ? CAMPOS_COMPLETO : CAMPOS_PREVIA;
-      const fieldsFiltrados = Object.fromEntries(
-        Object.entries(op.fields).filter(([k]) => camposPermitidos.has(k))
-      );
-      fieldsFiltrados._parceiro = parceiro;
-
-      const arquivosJson = op.fields["Arquivos (JSON)"];
-      if (arquivosJson) {
+      const [record] = await anexarSinteticosOportunidade(env, [row]);
+      if (row.arquivos_json) {
         try {
-          const todos = JSON.parse(arquivosJson);
-          fieldsFiltrados._imagens    = todos.filter(a => a.tipo === "imagem").map(a => a.url);
-          fieldsFiltrados._documentos = todos.filter(a => a.tipo === "documento");
+          const todos = JSON.parse(row.arquivos_json);
+          record.fields._imagens    = todos.filter(a => a.tipo === "imagem").map(a => a.url);
+          record.fields._documentos = todos.filter(a => a.tipo === "documento");
         } catch { /* JSON inválido — ignora */ }
       }
-
-      return corsResponse({ id: op.id, fields: fieldsFiltrados });
+      return corsResponse(record);
     }
 
-    // ── Autenticação obrigatória abaixo ────────────
-    const authHeader = request.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) return errorResponse("Não autorizado", 401);
-
-    const user = await verifyFirebaseToken(authHeader.slice(7), env);
-    if (!user) return errorResponse("Token inválido", 401);
-
-    // Assinatura de upload — exige login, evita upload direto/anônimo no Cloudinary (Red Team #9)
-    if (path === "/cloudinary/assinatura" && method === "POST") {
-      const rl = await checkRateLimit(env, `upload:${user.email}`, 60, 3600);
-      if (!rl.ok) return respostaRateLimit(rl.retryAfterSec);
+    if (method === "PATCH") {
       const body = await parseBody(request);
       if (!body) return errorResponse("Corpo da requisição inválido", 400);
-      const foldersValidos = new Set(["modo-imagens", "modo-docs", "modo-kmz"]);
-      const folder = foldersValidos.has(body.folder) ? body.folder : "modo-imagens";
-      const timestamp = Math.floor(Date.now() / 1000);
-      const signature = await gerarAssinaturaCloudinary({ folder, timestamp }, env.CLOUDINARY_API_SECRET);
-      return corsResponse({
-        signature, timestamp, folder,
-        apiKey: env.CLOUDINARY_API_KEY,
-        cloudName: "dlyebtufy",
-      });
-    }
 
-    // ── Oportunidades ──────────────────────────────
+      const atual = await env.DB.prepare("SELECT * FROM oportunidades WHERE id = ?").bind(id).first();
+      if (!atual) return errorResponse("Oportunidade não encontrada", 404);
 
-    if (path === "/oportunidades" && method === "GET") {
-      const params = url.searchParams;
-      let formula;
-
-      if (user.admin && params.get("todos") === "true") {
-        formula = ""; // Admins veem tudo
-      } else {
-        // Parceiro vê só as próprias; admins sem ?todos veem tudo exceto captações internas
-        formula = user.admin
-          ? `NOT({Origem} = "MODO")`
-          : `{E-mail do solicitante} = "${user.email}"`;
+      if (!user.admin) {
+        if (atual.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
+          return errorResponse("Acesso negado", 403);
+        }
+        delete body.status;
+        delete body.motivo;
       }
 
-      const airtableParams = {
-        sort: [{ field: "Data de entrada", direction: "desc" }],
-        pageSize: params.get("limit") || 100,
-      };
-      if (formula) airtableParams.filterByFormula = formula;
+      const campos = {};
+      if (body.status) campos["Status"]                   = body.status;
+      if (body.motivo) campos["Motivo (status negativo)"] = body.motivo;
 
-      const data = await airtable(env, "GET", TBL.oportunidades, "", airtableParams);
-      return corsResponse(data);
-    }
-
-    if (path === "/oportunidades" && method === "POST") {
-      const body = await parseBody(request);
-      if (!body) return errorResponse("Corpo da requisição inválido", 400);
+      const ehEdicaoCompleta = body.tipo || body.municipio || body.area != null || body.valor != null;
+      let novasFinalidades = null;
+      if (ehEdicaoCompleta) {
+        const finalidades = (body.finalidade || "").split(", ").map(f => f.trim()).filter(f => FINALIDADE_VALIDA.has(f));
+        const tipoMapeado   = TIPO_IMOVEL_MAP[body.tipo]  || body.tipo   || null;
+        const estadoMapeado = ESTADO_MAP[body.estado]     || body.estado || null;
+        const titulo = [tipoMapeado, body.municipio, body.estado].filter(Boolean).join(" · ");
+        if (titulo)                     campos["Título"]                = titulo;
+        if (tipoMapeado)                campos["Tipo de imóvel"]        = tipoMapeado;
+        if (finalidades.length)       { novasFinalidades = finalidades;
+                                        campos["Tipo de negócio"]       = finalidades[0]; }
+        if (body.cep)                   campos["CEP"]                   = body.cep;
+        if (body.endereco)              campos["Endereço"]              = body.endereco;
+        if (body.municipio)             campos["Município"]             = body.municipio;
+        if (estadoMapeado)              campos["Estado"]                = estadoMapeado;
+        if (body.area           != null) campos["Área total (m²)"]      = body.area;
+        if (body.areaPrivativa  != null) campos["Área privativa (m²)"]  = body.areaPrivativa;
+        if (body.valor          != null) campos["Valor pretendido (R$)"] = body.valor;
+        if (body.comissao       != null) campos["Comissão (%)"]         = body.comissao / 100;
+        if (body.detComissao)           campos["Detalhes da comissão"]  = body.detComissao;
+        if (body.videoLink) {
+          if (!validarUrlSimples(body.videoLink)) return errorResponse("Link de vídeo inválido", 400);
+          campos["Link de vídeo"] = body.videoLink;
+        }
+        if (body.kmlLink) {
+          if (!validarUrlSimples(body.kmlLink)) return errorResponse("Link KMZ/KML inválido", 400);
+          campos["Link KMZ/KML"] = body.kmlLink;
+        }
+        if (body.lat != null)           campos["Latitude"]             = body.lat;
+        if (body.lng != null)           campos["Longitude"]            = body.lng;
+        campos["Observações"] = body.observacoes || "";
+      }
       if (body.arquivos) {
         const arquivosValidos = validarArquivos(body.arquivos);
         if (!arquivosValidos) return errorResponse("Arquivos em formato inválido", 400);
-        body.arquivos = arquivosValidos;
+        campos["Arquivos (JSON)"] = JSON.stringify(arquivosValidos);
       }
-      // Parceiro não-admin não escolhe de quem é a oportunidade nem sua origem (Red Team #6)
-      if (!user.admin) {
-        body.emailParceiro = user.email;
-        body.origem = "Parceiro";
+
+      // ── Log de auditoria — usa `atual` já obtido acima ──
+      if (ehEdicaoCompleta || body.status || body.arquivos) {
+        const LABELS = {
+          "Título": "Título", "Tipo de imóvel": "Tipo de imóvel",
+          "Área total (m²)": "Área total", "Área privativa (m²)": "Área privativa",
+          "Valor pretendido (R$)": "Valor pretendido",
+          "CEP": "CEP", "Endereço": "Endereço", "Município": "Município",
+          "Estado": "Estado", "Observações": "Observações",
+          "Link de vídeo": "Vídeo", "Link KMZ/KML": "KMZ/KML",
+          "Status": "Status", "Arquivos (JSON)": "Arquivos",
+        };
+        const atualFields = rowToRecord("oportunidades", atual).fields;
+        const alteracoes = [];
+        for (const [campo, novoValor] of Object.entries(campos)) {
+          if (campo === "Finalidades") continue; // campo sintético (tabela de junção) — não comparável aqui
+          const label = LABELS[campo] || campo;
+          const anterior = atualFields[campo];
+          const anteriorStr = campo === "Arquivos (JSON)"
+            ? (anterior ? `${JSON.parse(anterior).length} arquivo(s)` : "nenhum")
+            : (anterior != null ? String(anterior) : "—");
+          const novoStr = campo === "Arquivos (JSON)"
+            ? `${JSON.parse(novoValor).length} arquivo(s)`
+            : String(novoValor);
+          if (anteriorStr !== novoStr) alteracoes.push({ campo: label, de: anteriorStr, para: novoStr });
+        }
+        if (alteracoes.length) {
+          let historico = [];
+          try { historico = JSON.parse(atual.historico_json || "[]"); } catch {}
+          historico.push({
+            data: new Date().toISOString(),
+            email: user.email,
+            nome: user.email,
+            admin: user.admin || false,
+            alteracoes,
+          });
+          campos["Histórico (JSON)"] = JSON.stringify(historico);
+        }
       }
-      const parceiro = user.admin ? null : await getParceiroPorEmail(env, user.email);
-      const campos   = camposOportunidade(body, parceiro);
-      const record   = await airtable(env, "POST", TBL.oportunidades, "", {}, { fields: campos });
-      return corsResponse({ id: record.id });
+
+      const row = fieldsToRow("oportunidades", campos);
+      const cols = Object.keys(row);
+      if (cols.length) {
+        const setClauses = cols.map(c => `${c} = ?`);
+        setClauses.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
+        const sql = `UPDATE oportunidades SET ${setClauses.join(", ")} WHERE id = ?`;
+        await env.DB.prepare(sql).bind(...cols.map(c => row[c]), id).run();
+      }
+      if (novasFinalidades) {
+        await env.DB.batch([
+          env.DB.prepare("DELETE FROM oportunidade_finalidades WHERE oportunidade_id = ?").bind(id),
+          ...novasFinalidades.map((f, i) =>
+            env.DB.prepare("INSERT INTO oportunidade_finalidades (oportunidade_id, finalidade, ordem) VALUES (?, ?, ?)")
+              .bind(id, f, i)),
+        ]);
+      }
+
+      const atualizado = await env.DB.prepare("SELECT * FROM oportunidades WHERE id = ?").bind(id).first();
+      const [record] = await anexarSinteticosOportunidade(env, [atualizado]);
+      return corsResponse(record);
     }
 
-    const opMatch = path.match(/^\/oportunidades\/([^/]+)$/);
-    if (opMatch) {
-      const id = opMatch[1];
-      if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
-
-      if (method === "GET") {
-        const data = await airtable(env, "GET", TBL.oportunidades, id);
-        // Verificar acesso: parceiro só pode ver a própria
-        if (!user.admin && data.fields["E-mail do solicitante"] !== user.email) {
+    if (method === "DELETE") {
+      if (!user.admin) {
+        const atual = await env.DB.prepare("SELECT email_solicitante FROM oportunidades WHERE id = ?").bind(id).first();
+        if (!atual) return errorResponse("Oportunidade não encontrada", 404);
+        if (atual.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
           return errorResponse("Acesso negado", 403);
         }
-        // Desserializar arquivos Cloudinary
-        const arquivosJson = data.fields["Arquivos (JSON)"];
-        if (arquivosJson) {
-          try {
-            const todos = JSON.parse(arquivosJson);
-            data.fields._imagens    = todos.filter(a => a.tipo === "imagem").map(a => a.url);
-            data.fields._documentos = todos.filter(a => a.tipo === "documento");
-          } catch { /* JSON inválido — ignora */ }
-        }
-        return corsResponse(data);
       }
+      await env.DB.prepare("DELETE FROM oportunidades WHERE id = ?").bind(id).run();
+      return corsResponse({ message: "Oportunidade deletada" });
+    }
+  }
 
-      if (method === "PATCH") {
-        const body = await parseBody(request);
-        if (!body) return errorResponse("Corpo da requisição inválido", 400);
+  // Gerar/regenerar token de compartilhamento
+  const compartilharMatch = path.match(/^\/oportunidades\/([^/]+)\/compartilhar$/);
+  if (compartilharMatch && method === "POST") {
+    const id = compartilharMatch[1];
+    if (!validarRecordId(id)) return errorResponse("ID de oportunidade inválido", 400);
+    const op = await env.DB.prepare("SELECT email_solicitante FROM oportunidades WHERE id = ?").bind(id).first();
+    if (!op) return errorResponse("Oportunidade não encontrada", 404);
+    if (!user.admin && op.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
+      return errorResponse("Acesso negado", 403);
+    }
+    const token = gerarToken();
+    await env.DB.prepare("UPDATE oportunidades SET token_compartilhamento = ? WHERE id = ?").bind(token, id).run();
+    return corsResponse({ token });
+  }
 
-        // GET único — reaproveitado tanto para verificação de acesso quanto para o log de auditoria (ALTO 5)
-        const atual = await airtable(env, "GET", TBL.oportunidades, id);
-        if (!user.admin) {
-          if ((atual.fields["E-mail do solicitante"] || "").toLowerCase() !== user.email.toLowerCase()) {
-            return errorResponse("Acesso negado", 403);
-          }
-          delete body.status;
-          delete body.motivo;
-        }
+  // ── Parceiros ──────────────────────────────────
 
-        const campos = {};
-        // Atualização de status (pipeline — admin only, já filtrado acima)
-        if (body.status) campos["Status"]                   = body.status;
-        if (body.motivo) campos["Motivo (status negativo)"] = body.motivo;
-
-        // Edição completa (formulário)
-        const ehEdicaoCompleta = body.tipo || body.municipio || body.area != null || body.valor != null;
-        if (ehEdicaoCompleta) {
-          const finalidades = (body.finalidade || "").split(", ").map(f => f.trim()).filter(f => FINALIDADE_VALIDA.has(f));
-          const tipoMapeado   = TIPO_IMOVEL_MAP[body.tipo]  || body.tipo   || null;
-          const estadoMapeado = ESTADO_MAP[body.estado]     || body.estado || null;
-          const titulo = [tipoMapeado, body.municipio, body.estado].filter(Boolean).join(" · ");
-          if (titulo)                     campos["Título"]                = titulo;
-          if (tipoMapeado)                campos["Tipo de imóvel"]        = tipoMapeado;
-          if (finalidades.length)       { campos["Finalidades"]          = finalidades;
-                                          campos["Tipo de negócio"]       = finalidades[0]; }
-          if (body.cep)                   campos["CEP"]                   = body.cep;
-          if (body.endereco)              campos["Endereço"]              = body.endereco;
-          if (body.municipio)             campos["Município"]             = body.municipio;
-          if (estadoMapeado)              campos["Estado"]                = estadoMapeado;
-          if (body.area           != null) campos["Área total (m²)"]      = body.area;
-          if (body.areaPrivativa  != null) campos["Área privativa (m²)"]  = body.areaPrivativa;
-          if (body.valor          != null) campos["Valor pretendido (R$)"] = body.valor;
-          if (body.comissao       != null) campos["Comissão (%)"]         = body.comissao / 100;
-          if (body.detComissao)           campos["Detalhes da comissão"]  = body.detComissao;
-          if (body.videoLink) {
-            if (!validarUrlSimples(body.videoLink)) return errorResponse("Link de vídeo inválido", 400);
-            campos["Link de vídeo"] = body.videoLink;
-          }
-          if (body.kmlLink) {
-            if (!validarUrlSimples(body.kmlLink)) return errorResponse("Link KMZ/KML inválido", 400);
-            campos["Link KMZ/KML"] = body.kmlLink;
-          }
-          if (body.lat != null)           campos["Latitude"]             = body.lat;
-          if (body.lng != null)           campos["Longitude"]            = body.lng;
-          campos["Observações"] = body.observacoes || "";
-        }
-        if (body.arquivos) {
-          const arquivosValidos = validarArquivos(body.arquivos);
-          if (!arquivosValidos) return errorResponse("Arquivos em formato inválido", 400);
-          campos["Arquivos (JSON)"] = JSON.stringify(arquivosValidos);
-        }
-
-        // ── Log de auditoria — usa o `atual` já obtido acima (sem segundo GET) ──
-        if (ehEdicaoCompleta || body.status || body.arquivos) {
-          const LABELS = {
-            "Título": "Título", "Tipo de imóvel": "Tipo de imóvel",
-            "Finalidades": "Finalidade", "Tipo de negócio": "Finalidade (principal)", "Área total (m²)": "Área total",
-            "Área privativa (m²)": "Área privativa", "Valor pretendido (R$)": "Valor pretendido",
-            "CEP": "CEP", "Endereço": "Endereço", "Município": "Município",
-            "Estado": "Estado", "Observações": "Observações",
-            "Link de vídeo": "Vídeo", "Link KMZ/KML": "KMZ/KML",
-            "Status": "Status", "Arquivos (JSON)": "Arquivos",
-          };
-          const alteracoes = [];
-          for (const [campo, novoValor] of Object.entries(campos)) {
-            const label    = LABELS[campo] || campo;
-            const anterior = atual.fields[campo];
-            const anteriorStr = campo === "Arquivos (JSON)"
-              ? (anterior ? `${JSON.parse(anterior).length} arquivo(s)` : "nenhum")
-              : (anterior != null ? String(anterior) : "—");
-            const novoStr = campo === "Arquivos (JSON)"
-              ? `${JSON.parse(novoValor).length} arquivo(s)`
-              : String(novoValor);
-            if (anteriorStr !== novoStr) {
-              alteracoes.push({ campo: label, de: anteriorStr, para: novoStr });
-            }
-          }
-          if (alteracoes.length) {
-            const entrada = {
-              data:      new Date().toISOString(),
-              email:     user.email,
-              nome:      user.email,
-              admin:     user.admin || false,
-              alteracoes,
-            };
-            const historicoAtual = atual.fields["Histórico (JSON)"] || "[]";
-            let historico = [];
-            try { historico = JSON.parse(historicoAtual); } catch {}
-            historico.push(entrada);
-            campos["Histórico (JSON)"] = JSON.stringify(historico);
-          }
-        }
-
-        const data = await airtable(env, "PATCH", TBL.oportunidades, id, {}, { fields: campos });
-        return corsResponse(data);
-      }
-
-      if (method === "DELETE") {
-        if (!user.admin) {
-          const atual = await airtable(env, "GET", TBL.oportunidades, id);
-          if ((atual.fields["E-mail do solicitante"] || "").toLowerCase() !== user.email.toLowerCase()) {
-            return errorResponse("Acesso negado", 403);
-          }
-        }
-        await airtable(env, "DELETE", TBL.oportunidades, id, {});
-        return corsResponse({ message: "Oportunidade deletada" });
+  if (path === "/parceiros" && method === "GET") {
+    if (!user.admin) return errorResponse("Acesso negado", 403);
+    const { results } = await env.DB.prepare("SELECT * FROM parceiros ORDER BY data_cadastro DESC").all();
+    const ids = results.map(r => r.id);
+    let opsByParceiro = {};
+    if (ids.length) {
+      const placeholders = ids.map(() => "?").join(",");
+      const { results: opRows } = await env.DB.prepare(
+        `SELECT id, parceiro_id FROM oportunidades WHERE parceiro_id IN (${placeholders})`
+      ).bind(...ids).all();
+      for (const o of opRows) {
+        if (!opsByParceiro[o.parceiro_id]) opsByParceiro[o.parceiro_id] = [];
+        opsByParceiro[o.parceiro_id].push(o.id);
       }
     }
+    const records = results.map(row => {
+      const rec = rowToRecord("parceiros", row);
+      rec.fields["Oportunidades"] = opsByParceiro[row.id] || [];
+      return rec;
+    });
+    return corsResponse({ records });
+  }
 
-    // Gerar token de compartilhamento
-    const compartilharMatch = path.match(/^\/oportunidades\/([^/]+)\/compartilhar$/);
-    if (compartilharMatch && method === "POST") {
-      const id = compartilharMatch[1];
-      // Impede que qualquer parceiro autenticado regenere o token de oportunidade alheia (Red Team #5)
-      try { await verificarAcessoOportunidade(env, user, id); }
-      catch (e) { return errorResponse(e.message, e.status || 400); }
-      const token = gerarToken();
-      await airtable(env, "PATCH", TBL.oportunidades, id, {}, {
-        fields: { "Token de compartilhamento": token },
-      });
-      return corsResponse({ token });
+  const parceiroMatch = path.match(/^\/parceiros\/([^/]+)$/);
+  if (parceiroMatch && method === "PATCH" && user.admin) {
+    const id = parceiroMatch[1];
+    if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    if (!body.status) return errorResponse("Nada para atualizar", 400);
+
+    await env.DB.prepare(
+      "UPDATE parceiros SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
+    ).bind(body.status, id).run();
+    const atualizado = await env.DB.prepare("SELECT * FROM parceiros WHERE id = ?").bind(id).first();
+    if (!atualizado) return errorResponse("Parceiro não encontrado", 404);
+
+    // Ativação inline — único caminho de ativação, sem depender de webhook externo
+    if (body.status === "Ativo") {
+      await ativarParceiroEEnviarBoasVindas(env, atualizado.nome_completo, atualizado.email);
     }
 
-    // ── Parceiros ──────────────────────────────────
+    return corsResponse(rowToRecord("parceiros", atualizado));
+  }
 
-    if (path === "/parceiros" && method === "GET") {
-      if (!user.admin) return errorResponse("Acesso negado", 403);
-      const data = await airtable(env, "GET", TBL.parceiros, "", {
-        sort: [{ field: "Data de cadastro", direction: "desc" }],
-      });
-      return corsResponse(data);
+  // ── Avisos ─────────────────────────────────────
+
+  if (path === "/avisos" && method === "GET") {
+    const { results } = await env.DB.prepare("SELECT * FROM avisos ORDER BY data_hora DESC").all();
+    const records = results.map(row => ({
+      id: row.id,
+      fields: { "Mensagem": row.mensagem, "Data e hora": row.data_hora },
+    }));
+    return corsResponse({ records });
+  }
+
+  if (path === "/avisos" && method === "POST" && user.admin) {
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    const id = gerarRecordId();
+    await env.DB.prepare("INSERT INTO avisos (id, mensagem) VALUES (?, ?)").bind(id, body.mensagem).run();
+    const row = await env.DB.prepare("SELECT * FROM avisos WHERE id = ?").bind(id).first();
+    return corsResponse({ id: row.id, fields: { "Mensagem": row.mensagem, "Data e hora": row.data_hora } });
+  }
+
+  // ── Demandas ───────────────────────────────────
+
+  if (path === "/demandas" && method === "GET") {
+    const where = user.admin ? "" : "WHERE visivel_parceiros = 1";
+    const { results } = await env.DB.prepare(`SELECT * FROM demandas ${where} ORDER BY data_publicacao DESC`).all();
+    return corsResponse(rowsToRecords("demandas", results));
+  }
+
+  if (path === "/demandas" && method === "POST" && user.admin) {
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    const campos = {
+      "Título":                 body.titulo,
+      "Tipo de imóvel":         body.tipo || null,
+      "Localização desejada":   body.local || null,
+      "Área mínima (m²)":       body.areaMin || null,
+      "Área máxima (m²)":       body.areaMax || null,
+      "Valor máximo (R$)":      body.valor || null,
+      "Descrição":              body.descricao || null,
+      "Visível para parceiros": body.visivel ?? false,
+    };
+    const cleaned = Object.fromEntries(Object.entries(campos).filter(([, v]) => v !== null));
+    const id = gerarRecordId();
+    const row = fieldsToRow("demandas", cleaned);
+    const cols = Object.keys(row);
+    await env.DB.prepare(
+      `INSERT INTO demandas (id, ${cols.join(", ")}) VALUES (?, ${cols.map(() => "?").join(", ")})`
+    ).bind(id, ...cols.map(c => row[c])).run();
+    const created = await env.DB.prepare("SELECT * FROM demandas WHERE id = ?").bind(id).first();
+    return corsResponse(rowToRecord("demandas", created));
+  }
+
+  const demandaMatch = path.match(/^\/demandas\/([^/]+)$/);
+  if (demandaMatch && method === "PATCH" && user.admin) {
+    const id = demandaMatch[1];
+    if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    const campos = {};
+    if (body.titulo    !== undefined) campos["Título"]                 = body.titulo;
+    if (body.tipo      !== undefined) campos["Tipo de imóvel"]         = body.tipo;
+    if (body.local     !== undefined) campos["Localização desejada"]   = body.local;
+    if (body.areaMin   !== undefined) campos["Área mínima (m²)"]       = body.areaMin;
+    if (body.areaMax   !== undefined) campos["Área máxima (m²)"]       = body.areaMax;
+    if (body.valor     !== undefined) campos["Valor máximo (R$)"]      = body.valor;
+    if (body.descricao !== undefined) campos["Descrição"]              = body.descricao;
+    if (body.visivel   !== undefined) campos["Visível para parceiros"] = body.visivel;
+    const row = fieldsToRow("demandas", campos);
+    const cols = Object.keys(row);
+    if (cols.length) {
+      const sql = `UPDATE demandas SET ${cols.map(c => `${c} = ?`).join(", ")} WHERE id = ?`;
+      await env.DB.prepare(sql).bind(...cols.map(c => row[c]), id).run();
     }
+    const atualizado = await env.DB.prepare("SELECT * FROM demandas WHERE id = ?").bind(id).first();
+    if (!atualizado) return errorResponse("Demanda não encontrada", 404);
+    return corsResponse(rowToRecord("demandas", atualizado));
+  }
 
-    const parceiroMatch = path.match(/^\/parceiros\/([^/]+)$/);
-    if (parceiroMatch && method === "PATCH" && user.admin) {
-      const id     = parceiroMatch[1];
-      if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
-      const body   = await parseBody(request);
-      if (!body) return errorResponse("Corpo da requisição inválido", 400);
-      const campos = {};
-      if (body.status) campos["Status"] = body.status;
-      const data = await airtable(env, "PATCH", TBL.parceiros, id, {}, { fields: campos });
-      return corsResponse(data);
-    }
+  // ── Leads ──────────────────────────────────────
 
-    // ── Avisos ─────────────────────────────────────
-
-    if (path === "/avisos" && method === "GET") {
-      const data = await airtable(env, "GET", TBL.mensagens, "", {
-        sort: [{ field: "Data e hora", direction: "desc" }],
-        filterByFormula: `{De} = "MODO"`,
-      });
-      return corsResponse(data);
-    }
-
-    if (path === "/avisos" && method === "POST" && user.admin) {
-      const body = await parseBody(request);
-      if (!body) return errorResponse("Corpo da requisição inválido", 400);
-      const data = await airtable(env, "POST", TBL.mensagens, "", {}, {
-        fields: {
-          "Mensagem":   body.mensagem,
-          "De":         "MODO",
-          "Data e hora": new Date().toISOString(),
-        },
-      });
-      return corsResponse(data);
-    }
-
-    // ── Demandas ───────────────────────────────────
-
-    if (path === "/demandas" && method === "GET") {
-      const formula = user.admin ? "" : `{Visível para parceiros} = 1`;
-      const params  = { sort: [{ field: "Data de publicação", direction: "desc" }] };
-      if (formula) params.filterByFormula = formula;
-      const data = await airtable(env, "GET", TBL.demandas, "", params);
-      return corsResponse(data);
-    }
-
-    if (path === "/demandas" && method === "POST" && user.admin) {
-      const body = await parseBody(request);
-      if (!body) return errorResponse("Corpo da requisição inválido", 400);
-      const data = await airtable(env, "POST", TBL.demandas, "", {}, {
-        fields: {
-          "Título":                 body.titulo,
-          "Tipo de imóvel":         body.tipo || null,
-          "Localização desejada":   body.local || null,
-          "Área mínima (m²)":       body.areaMin || null,
-          "Área máxima (m²)":       body.areaMax || null,
-          "Valor máximo (R$)":      body.valor || null,
-          "Descrição":              body.descricao || null,
-          "Visível para parceiros": body.visivel ?? false,
-          "Data de publicação":     new Date().toISOString().split("T")[0],
-        },
-      });
-      return corsResponse(data);
-    }
-
-    const demandaMatch = path.match(/^\/demandas\/([^/]+)$/);
-    if (demandaMatch && method === "PATCH" && user.admin) {
-      const id   = demandaMatch[1];
-      if (!validarRecordId(id)) return errorResponse("ID inválido", 400);
-      const body = await parseBody(request);
-      if (!body) return errorResponse("Corpo da requisição inválido", 400);
-      const campos = {};
-      if (body.titulo    !== undefined) campos["Título"]                 = body.titulo;
-      if (body.tipo      !== undefined) campos["Tipo de imóvel"]         = body.tipo;
-      if (body.local     !== undefined) campos["Localização desejada"]   = body.local;
-      if (body.areaMin   !== undefined) campos["Área mínima (m²)"]       = body.areaMin;
-      if (body.areaMax   !== undefined) campos["Área máxima (m²)"]       = body.areaMax;
-      if (body.valor     !== undefined) campos["Valor máximo (R$)"]      = body.valor;
-      if (body.descricao !== undefined) campos["Descrição"]              = body.descricao;
-      if (body.visivel   !== undefined) campos["Visível para parceiros"] = body.visivel;
-      const data = await airtable(env, "PATCH", TBL.demandas, id, {}, { fields: campos });
-      return corsResponse(data);
-    }
-
-    // ── Leads ──────────────────────────────────────
-
-    if (path === "/leads" && method === "GET") {
-      const opId = url.searchParams.get("opId");
-      if (user.admin) {
-        // Admin: todos os leads, ou filtrado por oportunidade
-        const params = { sort: [{ field: "Data e hora do acesso", direction: "desc" }] };
-        if (opId) params.filterByFormula = `{ID da oportunidade} = "${opId}"`;
-        const data = await airtable(env, "GET", TBL.leads, "", params);
-        return corsResponse(data);
-      } else {
-        // Parceiro: só leads de suas próprias oportunidades
-        if (!opId) return errorResponse("opId obrigatório", 400);
-        // Verifica que a oportunidade pertence a este parceiro
-        const op = await airtable(env, "GET", TBL.oportunidades, opId);
-        const emailOp = op.fields?.["E-mail do solicitante"] || "";
-        if (emailOp.toLowerCase() !== user.email.toLowerCase()) return errorResponse("Acesso negado", 403);
-        const data = await airtable(env, "GET", TBL.leads, "", {
-          filterByFormula: `{ID da oportunidade} = "${opId}"`,
-          sort: [{ field: "Data e hora do acesso", direction: "desc" }],
-        });
-        return corsResponse(data);
-      }
-    }
-
-    // ── Chat por oportunidade ──────────────────────
-    if (path === "/mensagens" && method === "GET") {
-      const opId = url.searchParams.get("opId");
+  if (path === "/leads" && method === "GET") {
+    const opId = url.searchParams.get("opId");
+    if (user.admin) {
+      const { results } = opId
+        ? await env.DB.prepare("SELECT * FROM leads WHERE oportunidade_id = ? ORDER BY data_hora_acesso DESC").bind(opId).all()
+        : await env.DB.prepare("SELECT * FROM leads ORDER BY data_hora_acesso DESC").all();
+      return corsResponse(rowsToRecords("leads", results));
+    } else {
       if (!opId) return errorResponse("opId obrigatório", 400);
-      let op;
-      try { op = await verificarAcessoOportunidade(env, user, opId); }
-      catch (e) { return errorResponse(e.message, e.status || 400); }
-      const msgIds = op.fields?.["Mensagens"] || [];
-      if (!msgIds.length) return corsResponse({ records: [] });
-      const formula = "OR(" + msgIds.map(id => `RECORD_ID()='${id}'`).join(",") + ")";
-      const data = await airtable(env, "GET", TBL.mensagens, "", {
-        filterByFormula: formula,
-        sort: [{ field: "Data e hora", direction: "asc" }],
-      });
-      return corsResponse(data);
+      const op = await env.DB.prepare("SELECT email_solicitante FROM oportunidades WHERE id = ?").bind(opId).first();
+      if (!op || op.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
+        return errorResponse("Acesso negado", 403);
+      }
+      const { results } = await env.DB.prepare(
+        "SELECT * FROM leads WHERE oportunidade_id = ? ORDER BY data_hora_acesso DESC"
+      ).bind(opId).all();
+      return corsResponse(rowsToRecords("leads", results));
+    }
+  }
+
+  // ── Chat por oportunidade ──────────────────────
+
+  if (path === "/mensagens" && method === "GET") {
+    const opId = url.searchParams.get("opId");
+    if (!opId) return errorResponse("opId obrigatório", 400);
+    if (!validarRecordId(opId)) return errorResponse("ID de oportunidade inválido", 400);
+    const op = await env.DB.prepare("SELECT email_solicitante FROM oportunidades WHERE id = ?").bind(opId).first();
+    if (!op) return errorResponse("Oportunidade não encontrada", 404);
+    if (!user.admin && op.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
+      return errorResponse("Acesso negado", 403);
+    }
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM mensagens WHERE oportunidade_id = ? ORDER BY data_hora ASC"
+    ).bind(opId).all();
+    return corsResponse(rowsToRecords("mensagens", results));
+  }
+
+  if (path === "/mensagens" && method === "POST") {
+    const body = await parseBody(request);
+    if (!body) return errorResponse("Corpo da requisição inválido", 400);
+    if (!body.opId || !body.texto?.trim()) return errorResponse("Dados incompletos");
+    if (body.texto.length > 4000) return errorResponse("Mensagem muito longa (máx 4000 chars)");
+    if (!validarRecordId(body.opId)) return errorResponse("ID de oportunidade inválido", 400);
+
+    const op = await env.DB.prepare("SELECT * FROM oportunidades WHERE id = ?").bind(body.opId).first();
+    if (!op) return errorResponse("Oportunidade não encontrada", 404);
+    if (!user.admin && op.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
+      return errorResponse("Acesso negado", 403);
     }
 
-    if (path === "/mensagens" && method === "POST") {
-      const body = await parseBody(request);
-      if (!body) return errorResponse("Corpo da requisição inválido", 400);
-      if (!body.opId || !body.texto?.trim()) return errorResponse("Dados incompletos");
-      if (body.texto.length > 4000) return errorResponse("Mensagem muito longa (máx 4000 chars)");
-      let op;
-      try { op = await verificarAcessoOportunidade(env, user, body.opId); }
-      catch (e) { return errorResponse(e.message, e.status || 400); }
-
-      // Parceiro suspenso/inativo não pode enviar mensagens (MÉDIO 6)
-      if (!user.admin) {
-        const parceiro = await getParceiroPorEmail(env, user.email);
-        if (!parceiro || parceiro.fields["Status"] !== "Ativo") {
-          return errorResponse("Conta suspensa ou inativa", 403);
-        }
+    if (!user.admin) {
+      const parceiro = await env.DB.prepare("SELECT status FROM parceiros WHERE lower(email) = lower(?)").bind(user.email).first();
+      if (!parceiro || parceiro.status !== "Ativo") {
+        return errorResponse("Conta suspensa ou inativa", 403);
       }
-      await airtable(env, "POST", TBL.mensagens, "", {}, {
-        fields: {
-          "Mensagem":     body.texto.trim(),
-          "Oportunidade": [body.opId],
-          "De":           user.admin ? "Admin" : "Parceiro",
-          "Data e hora":  new Date().toISOString(),
-          "Lida":         false,
-        },
-      });
+    }
 
-      // Notificar a outra parte por e-mail (no máximo 1 a cada 3h por conversa, anti-spam)
-      const titulo = op.fields["Título"] || "oportunidade";
-      const texto  = esc(body.texto.trim());
-      const rodapeAntiSpam = `<p style="color:#94a3b8;font-size:12px;margin-top:20px;line-height:1.5">📬 Para manter sua caixa de entrada organizada, o Portal MODOnexo envia no máximo <strong>uma notificação a cada 3 horas</strong> por conversa — independente da quantidade de mensagens recebidas no período. Para acompanhar a conversa em tempo real, acesse o portal diretamente.</p>`;
+    const msgId = gerarRecordId();
+    const de = user.admin ? "Admin" : "Parceiro";
+    await env.DB.prepare(
+      "INSERT INTO mensagens (id, mensagem, oportunidade_id, de, lida) VALUES (?, ?, ?, ?, 0)"
+    ).bind(msgId, body.texto.trim(), body.opId, de).run();
 
-      const senderDe = user.admin ? "Admin" : "Parceiro";
-      const msgIdsAnteriores = op.fields["Mensagens"] || [];
-      let deveEnviarEmail = true;
-      if (msgIdsAnteriores.length > 0) {
-        const tresHorasAtras = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-        const formula = `AND(OR(${msgIdsAnteriores.map(i => `RECORD_ID()='${escFormula(i)}'`).join(",")}),{De}="${escFormula(senderDe)}",IS_AFTER({Data e hora},"${tresHorasAtras}"))`;
-        const recentes = await airtable(env, "GET", TBL.mensagens, "", {
-          filterByFormula: formula,
-          fields: ["Data e hora"],
-          maxRecords: 1,
-        });
-        if (recentes.records?.length > 0) deveEnviarEmail = false;
-      }
+    // Notificar a outra parte por e-mail (no máximo 1 a cada 3h por conversa/remetente)
+    const titulo = op.titulo || "oportunidade";
+    const texto  = esc(body.texto.trim());
+    const rodapeAntiSpam = `<p style="color:#94a3b8;font-size:12px;margin-top:20px;line-height:1.5">📬 Para manter sua caixa de entrada organizada, o Portal MODOnexo envia no máximo <strong>uma notificação a cada 3 horas</strong> por conversa — independente da quantidade de mensagens recebidas no período. Para acompanhar a conversa em tempo real, acesse o portal diretamente.</p>`;
 
-      if (deveEnviarEmail) {
-        if (user.admin) {
-          const emailParceiro = op.fields["E-mail do solicitante"] || "";
-          if (emailParceiro) {
-            const link = `https://modonexo.com.br/parceiro/oportunidade.html?id=${body.opId}`;
-            await sendEmail(env, {
-              to: emailParceiro,
-              subject: `Nova mensagem sobre "${titulo}" — Portal MODOnexo`,
-              html: `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
-                <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
-                  <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem no portal</h2>
-                </div>
-                <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
-                  <p>Você recebeu uma mensagem sobre <strong>${esc(titulo)}</strong>:</p>
-                  <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #1a1a2e;white-space:pre-wrap;font-size:15px">${texto}</div>
-                  <a href="${link}" style="background:#1a1a2e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Ver no portal →</a>
-                  ${rodapeAntiSpam}
-                </div>
-              </div>`,
-            });
-          }
-        } else {
-          const link = `https://modonexo.com.br/admin/oportunidade.html?id=${body.opId}`;
+    const tresHorasAtras = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const recente = await env.DB.prepare(
+      "SELECT id FROM mensagens WHERE oportunidade_id = ? AND de = ? AND data_hora > ? AND id != ? LIMIT 1"
+    ).bind(body.opId, de, tresHorasAtras, msgId).first();
+    const deveEnviarEmail = !recente;
+
+    if (deveEnviarEmail) {
+      if (user.admin) {
+        const emailParceiro = op.email_solicitante || "";
+        if (emailParceiro) {
+          const link = `https://modonexo.com.br/parceiro/oportunidade.html?id=${body.opId}`;
           await sendEmail(env, {
-            to: "modogestaonexo@gmail.com",
-            subject: `Mensagem de parceiro sobre "${titulo}"`,
+            to: emailParceiro,
+            subject: `Nova mensagem sobre "${titulo}" — Portal MODOnexo`,
             html: `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
               <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
-                <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem de parceiro</h2>
+                <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem no portal</h2>
               </div>
               <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
-                <p>Mensagem de <strong>${esc(user.email)}</strong> sobre <strong>${esc(titulo)}</strong>:</p>
-                <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #c09a5a;white-space:pre-wrap;font-size:15px">${texto}</div>
+                <p>Você recebeu uma mensagem sobre <strong>${esc(titulo)}</strong>:</p>
+                <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #1a1a2e;white-space:pre-wrap;font-size:15px">${texto}</div>
                 <a href="${link}" style="background:#1a1a2e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Ver no portal →</a>
                 ${rodapeAntiSpam}
               </div>
             </div>`,
           });
         }
-      }
-
-      return corsResponse({ ok: true });
-    }
-
-    // Marcar mensagens como lidas (batch PATCH)
-    if (path === "/mensagens/ler" && method === "POST") {
-      const body = await parseBody(request);
-      if (!body || !body.opId) return errorResponse("opId obrigatório");
-      let op;
-      try { op = await verificarAcessoOportunidade(env, user, body.opId); }
-      catch (e) { return errorResponse(e.message, e.status || 400); }
-      const msgIds = op.fields?.["Mensagens"] || [];
-      if (!msgIds.length) return corsResponse({ ok: true, lidas: 0 });
-      const outroDe = user.admin ? "Parceiro" : "Admin";
-      const formula = `AND(OR(${msgIds.map(i => `RECORD_ID()='${escFormula(i)}'`).join(",")}),{De}="${escFormula(outroDe)}",{Lida}=FALSE())`;
-      const data = await airtable(env, "GET", TBL.mensagens, "", { filterByFormula: formula, fields: ["Mensagem"] });
-      const unread = data.records || [];
-      for (let i = 0; i < unread.length; i += 10) {
-        const batch = unread.slice(i, i + 10).map(r => ({ id: r.id, fields: { "Lida": true } }));
-        await airtable(env, "PATCH", TBL.mensagens, "", {}, { records: batch });
-      }
-      return corsResponse({ ok: true, lidas: unread.length });
-    }
-
-    // Contar mensagens não-lidas do usuário
-    if (path === "/mensagens/nao-lidas" && method === "GET") {
-      const outroDe = user.admin ? "Parceiro" : "Admin";
-      let formula;
-      if (user.admin) {
-        formula = `AND({De}="${outroDe}",{Lida}=FALSE())`;
       } else {
-        // Busca opIds do parceiro para filtrar
-        const opsData = await airtable(env, "GET", TBL.oportunidades, "", {
-          filterByFormula: `{E-mail do solicitante}="${user.email}"`,
-          fields: ["Mensagens"],
+        const link = `https://modonexo.com.br/admin/oportunidade.html?id=${body.opId}`;
+        await sendEmail(env, {
+          to: "modogestaonexo@gmail.com",
+          subject: `Mensagem de parceiro sobre "${titulo}"`,
+          html: `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#1a1a2e">
+            <div style="background:#1a1a2e;padding:20px 28px;border-radius:10px 10px 0 0">
+              <h2 style="color:#fff;margin:0;font-size:18px">Nova mensagem de parceiro</h2>
+            </div>
+            <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px">
+              <p>Mensagem de <strong>${esc(user.email)}</strong> sobre <strong>${esc(titulo)}</strong>:</p>
+              <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #c09a5a;white-space:pre-wrap;font-size:15px">${texto}</div>
+              <a href="${link}" style="background:#1a1a2e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Ver no portal →</a>
+              ${rodapeAntiSpam}
+            </div>
+          </div>`,
         });
-        const allMsgIds = (opsData.records || []).flatMap(r => r.fields["Mensagens"] || []);
-        if (!allMsgIds.length) return corsResponse({ count: 0, porOportunidade: {} });
-        formula = `AND(OR(${allMsgIds.map(i => `RECORD_ID()='${escFormula(i)}'`).join(",")}),{De}="${escFormula(outroDe)}",{Lida}=FALSE())`;
       }
-      const data = await airtable(env, "GET", TBL.mensagens, "", {
-        filterByFormula: formula,
-        fields: ["Oportunidade"],
-      });
-      const msgs = data.records || [];
-      const porOp = {};
-      for (const m of msgs) {
-        const opId = m.fields["Oportunidade"]?.[0];
-        if (opId) porOp[opId] = (porOp[opId] || 0) + 1;
-      }
-      return corsResponse({ count: msgs.length, porOportunidade: porOp });
     }
 
-    return errorResponse("Rota não encontrada", 404);
-  },
-};
+    return corsResponse({ ok: true });
+  }
+
+  // Marcar mensagens como lidas
+  if (path === "/mensagens/ler" && method === "POST") {
+    const body = await parseBody(request);
+    if (!body || !body.opId) return errorResponse("opId obrigatório");
+    if (!validarRecordId(body.opId)) return errorResponse("ID de oportunidade inválido", 400);
+    const op = await env.DB.prepare("SELECT email_solicitante FROM oportunidades WHERE id = ?").bind(body.opId).first();
+    if (!op) return errorResponse("Oportunidade não encontrada", 404);
+    if (!user.admin && op.email_solicitante.toLowerCase() !== user.email.toLowerCase()) {
+      return errorResponse("Acesso negado", 403);
+    }
+    const outroDe = user.admin ? "Parceiro" : "Admin";
+    const result = await env.DB.prepare(
+      "UPDATE mensagens SET lida = 1 WHERE oportunidade_id = ? AND de = ? AND lida = 0"
+    ).bind(body.opId, outroDe).run();
+    return corsResponse({ ok: true, lidas: result.meta?.changes || 0 });
+  }
+
+  // Contar mensagens não-lidas do usuário
+  if (path === "/mensagens/nao-lidas" && method === "GET") {
+    const outroDe = user.admin ? "Parceiro" : "Admin";
+    let sql, bindings;
+    if (user.admin) {
+      sql = "SELECT oportunidade_id, COUNT(*) AS n FROM mensagens WHERE de = ? AND lida = 0 GROUP BY oportunidade_id";
+      bindings = [outroDe];
+    } else {
+      sql = `SELECT m.oportunidade_id, COUNT(*) AS n
+             FROM mensagens m
+             JOIN oportunidades o ON o.id = m.oportunidade_id
+             WHERE lower(o.email_solicitante) = lower(?) AND m.de = ? AND m.lida = 0
+             GROUP BY m.oportunidade_id`;
+      bindings = [user.email, outroDe];
+    }
+    const { results } = await env.DB.prepare(sql).bind(...bindings).all();
+    const porOportunidade = {};
+    let count = 0;
+    for (const row of results) { porOportunidade[row.oportunidade_id] = row.n; count += row.n; }
+    return corsResponse({ count, porOportunidade });
+  }
+
+  return errorResponse("Rota não encontrada", 404);
+}
